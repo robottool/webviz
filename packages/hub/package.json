@@ -1,0 +1,25 @@
+{
+  "name": "@webviz/hub",
+  "version": "0.1.0",
+  "description": "WebViz hub: WebSocket broker + channel registry + asset/REST server.",
+  "type": "module",
+  "bin": {
+    "webviz-hub": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@webviz/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4"
+  }
+}

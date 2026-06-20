@@ -1,0 +1,17 @@
+{
+  "name": "webviz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-based visualization platform for robots and real-time systems (protocol-first, source-agnostic, tabbed workspace).",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "hub": "pnpm --filter @webviz/hub dev",
+    "app": "pnpm --filter @webviz/app dev"
+  }
+}
