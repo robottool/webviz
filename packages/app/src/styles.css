@@ -829,6 +829,37 @@ button:disabled {
   min-width: 0;
 }
 
+.layout-menu {
+  min-width: 230px;
+}
+.layout-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.layout-msg {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.layout-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.layout-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layout-del {
+  color: var(--text-dim);
+  padding: 0 4px;
+}
+.layout-del:hover {
+  color: var(--red);
+}
+
 .logtab {
   display: flex;
   flex-direction: column;
