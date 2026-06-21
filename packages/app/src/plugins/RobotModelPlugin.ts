@@ -300,6 +300,9 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   private afterMesh(): void {
+    // Meshes stream in asynchronously after the robot is added; reapply the
+    // current opacity so late arrivals match instead of staying fully opaque.
+    if (this.settings.opacity < 1) this.applyOpacity();
     this.ctx.scene.requestRender();
     this.emitChange();
   }
@@ -429,14 +432,23 @@ export class RobotModelPlugin implements DisplayPlugin {
   private applyOpacity(): void {
     if (!this.robot) return;
     const opacity = this.settings.opacity;
+    const transparent = opacity < 1;
     this.robot.traverse((node) => {
       const mat = (node as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
       if (!mat) return;
       for (const m of Array.isArray(mat) ? mat : [mat]) {
-        m.transparent = opacity < 1;
+        // Toggling `transparent` changes the material's render pass; flag a
+        // recompile so the renderer picks it up.
+        if (m.transparent !== transparent) m.needsUpdate = true;
+        m.transparent = transparent;
         m.opacity = opacity;
+        // Without disabling depth writes, overlapping solid surfaces occlude
+        // each other and the model still looks opaque — the slider "does
+        // nothing". Disable while transparent so it actually shows through.
+        m.depthWrite = !transparent;
       }
     });
+    this.ctx?.scene.requestRender();
   }
 
   // --- manual setters (called by the Properties UI) ---
