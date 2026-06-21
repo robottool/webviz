@@ -43,6 +43,11 @@ Open the app, it auto-connects to `ws://localhost:7777`.
 - **3D tab**: add it from the `＋` menu and run `robot_demo.py` — a UR5 loads from the
   hub asset server, drives around on the grid, and waves. Toggle displays, pick the
   fixed frame, and edit plugin settings in the Properties panel.
+- **Load your own URDF**: in the 3D tab's RobotModel properties, switch URDF to
+  **Local files**, click *Load URDF folder…*, and pick the folder containing your
+  `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
+  per-joint sliders + a base-pose input to preview. Once your pipeline publishes
+  `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
 
 ## Tests
 

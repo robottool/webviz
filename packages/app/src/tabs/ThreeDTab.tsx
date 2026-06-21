@@ -14,6 +14,8 @@ import { SceneManager } from '../core/SceneManager.js';
 import { tfManager } from '../core/TFManager.js';
 import { hubClient } from '../protocol/HubClient.js';
 import type { DisplayPlugin } from '../core/plugin.js';
+import type { RobotModelPlugin } from '../plugins/RobotModelPlugin.js';
+import { RobotModelProperties } from './RobotModelProperties.js';
 import { pluginRegistry } from '../plugins/index.js';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
@@ -260,14 +262,25 @@ export function ThreeDTab({ tabId }: Props) {
               <span>Properties</span>
             </div>
             {selected ? (
-              <PropertiesForm
-                key={selected.id}
-                plugin={selected}
-                onChange={() => {
-                  persist();
-                  force();
-                }}
-              />
+              selected.type === 'RobotModel' ? (
+                <RobotModelProperties
+                  key={selected.id}
+                  plugin={selected as RobotModelPlugin}
+                  onChange={() => {
+                    persist();
+                    force();
+                  }}
+                />
+              ) : (
+                <PropertiesForm
+                  key={selected.id}
+                  plugin={selected}
+                  onChange={() => {
+                    persist();
+                    force();
+                  }}
+                />
+              )
             ) : (
               <div className="muted" style={{ padding: '10px' }}>
                 Select a display to edit its properties.
