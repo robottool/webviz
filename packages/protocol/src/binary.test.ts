@@ -97,20 +97,33 @@ describe('wv/PointCloud payload', () => {
     expect(pointStride(PC_FLAG_INTENSITY | PC_FLAG_RGB)).toBe(7);
   });
 
-  it('round-trips xyz + intensity points', () => {
+  it('round-trips frame_id, xyz + intensity points', () => {
     const stride = pointStride(PC_FLAG_INTENSITY);
     const pointCount = 3;
     const data = new Float32Array(pointCount * stride);
     for (let i = 0; i < data.length; i++) data[i] = i * 0.5;
 
     const payload = encodePointCloudPayload({
+      frameId: 'lidar_link',
       pointCount,
       fieldFlags: PC_FLAG_INTENSITY,
       data,
     });
     const out = decodePointCloudPayload(payload);
+    expect(out.frameId).toBe('lidar_link');
     expect(out.pointCount).toBe(pointCount);
     expect(out.fieldFlags).toBe(PC_FLAG_INTENSITY);
+    expect(Array.from(out.data)).toEqual(Array.from(data));
+  });
+
+  it('round-trips an empty frame_id and rgb fields', () => {
+    const stride = pointStride(PC_FLAG_RGB);
+    const data = new Float32Array(2 * stride);
+    for (let i = 0; i < data.length; i++) data[i] = i + 0.25;
+    const out = decodePointCloudPayload(
+      encodePointCloudPayload({ frameId: '', pointCount: 2, fieldFlags: PC_FLAG_RGB, data }),
+    );
+    expect(out.frameId).toBe('');
     expect(Array.from(out.data)).toEqual(Array.from(data));
   });
 });

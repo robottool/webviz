@@ -141,13 +141,22 @@ export function encodeImageFrame(
 }
 
 // --- wv/PointCloud binary payload (§4.4) ---
-// Layout: [uint32 point_count][uint8 field_flags][float32 × point_count × stride]
+// Layout (mirrors wv/Image: a length-prefixed frame_id leads the payload so the
+// cloud carries its own TF frame, like every other schema):
+//   uint32  frame_id length (N)
+//   utf8    frame_id (N bytes)
+//   uint32  point_count
+//   uint8   field_flags
+//   float32 × point_count × stride   (interleaved xyz + optional fields)
+// The float region's byte offset depends on N, so it is generally unaligned;
+// the decoder copies it into an aligned buffer before viewing it as float32.
 
 export const PC_FLAG_INTENSITY = 0b001;
 export const PC_FLAG_RGB = 0b010;
 export const PC_FLAG_NORMAL = 0b100;
 
 export interface PointCloudPayload {
+  frameId: string;
   pointCount: number;
   fieldFlags: number;
   /** Interleaved float32 data: xyz + optional intensity/rgb/normal per point. */
@@ -164,14 +173,22 @@ export function pointStride(fieldFlags: number): number {
 }
 
 export function encodePointCloudPayload(pc: PointCloudPayload): Uint8Array {
-  const headerBytes = 5; // uint32 + uint8
+  const frameIdBytes = textEncoder.encode(pc.frameId);
+  const n = frameIdBytes.byteLength;
+  const headerBytes = 4 + n + 4 + 1;
   const out = new Uint8Array(headerBytes + pc.data.byteLength);
   const view = new DataView(out.buffer);
-  view.setUint32(0, pc.pointCount, LE);
-  view.setUint8(4, pc.fieldFlags);
-  // Copy float data after the 5-byte payload header. We byte-copy (rather than
-  // a Float32Array view) because offset 5 is not 4-byte aligned.
-  out.set(new Uint8Array(pc.data.buffer, pc.data.byteOffset, pc.data.byteLength), headerBytes);
+  let off = 0;
+  view.setUint32(off, n, LE);
+  off += 4;
+  out.set(frameIdBytes, off);
+  off += n;
+  view.setUint32(off, pc.pointCount, LE);
+  off += 4;
+  view.setUint8(off, pc.fieldFlags);
+  off += 1;
+  // Raw float bytes (little-endian on LE hosts; Python packs '<f' to match).
+  out.set(new Uint8Array(pc.data.buffer, pc.data.byteOffset, pc.data.byteLength), off);
   return out;
 }
 
@@ -181,15 +198,20 @@ export function decodePointCloudPayload(payload: Uint8Array): PointCloudPayload 
     payload.byteOffset,
     payload.byteLength,
   );
-  const pointCount = view.getUint32(0, LE);
-  const fieldFlags = view.getUint8(4);
+  let off = 0;
+  const n = view.getUint32(off, LE);
+  off += 4;
+  const frameId = textDecoder.decode(payload.subarray(off, off + n));
+  off += n;
+  const pointCount = view.getUint32(off, LE);
+  off += 4;
+  const fieldFlags = view.getUint8(off);
+  off += 1;
   const stride = pointStride(fieldFlags);
   const floatCount = pointCount * stride;
-  // Copy into an aligned Float32Array (payload offset 5 is unaligned).
-  const data = new Float32Array(floatCount);
-  const src = new DataView(payload.buffer, payload.byteOffset + 5, floatCount * 4);
-  for (let i = 0; i < floatCount; i++) {
-    data[i] = src.getFloat32(i * 4, LE);
-  }
-  return { pointCount, fieldFlags, data };
+  // Copy the (generally unaligned) float region into a fresh 4-byte-aligned
+  // buffer, then view it as float32 — far cheaper than a per-float DataView loop.
+  const aligned = new Uint8Array(payload.subarray(off, off + floatCount * 4));
+  const data = new Float32Array(aligned.buffer);
+  return { frameId, pointCount, fieldFlags, data };
 }
