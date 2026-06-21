@@ -32,6 +32,8 @@ export class TFManager {
   private buffers = new Map<string, Sample[]>();
   private subscribed = new Set<string>();
   private unsubs = new Map<string, () => void>();
+  /** frame_id -> name of the channel that most recently published it. */
+  private frameSource = new Map<string, string>();
   private fixedFrame = 'odom';
   private listeners = new Set<() => void>();
 
@@ -47,13 +49,13 @@ export class TFManager {
         ch.schema === 'wv/Transform' || ch.schema === 'wv/TransformArray';
       if (isTf && !this.subscribed.has(ch.name)) {
         this.subscribed.add(ch.name);
-        const unsub = hubClient.subscribe(ch.name, (m) => this.ingest(m));
+        const unsub = hubClient.subscribe(ch.name, (m) => this.ingest(m, ch.name));
         this.unsubs.set(ch.name, unsub);
       }
     }
   }
 
-  private ingest(msg: RoutedMessage): void {
+  private ingest(msg: RoutedMessage, channelName: string): void {
     if (msg.binary) return;
     const data = msg.data;
     const list: Transform[] = Array.isArray(data)
@@ -62,6 +64,7 @@ export class TFManager {
     for (const tf of list) {
       if (!tf || !tf.frame_id) continue;
       this.addSample(tf, msg.timestamp);
+      this.frameSource.set(tf.frame_id, channelName);
     }
     this.notify();
   }
@@ -104,6 +107,17 @@ export class TFManager {
       if (buf.length) frames.add(buf[buf.length - 1].parent);
     }
     return [...frames].sort();
+  }
+
+  /** The channel that most recently published `frameId`, or undefined for a
+   * frame only ever referenced as a parent (never published itself). */
+  getFrameSource(frameId: string): string | undefined {
+    return this.frameSource.get(frameId);
+  }
+
+  /** Distinct TF channel names that have published at least one frame. */
+  getSourceChannels(): string[] {
+    return [...new Set(this.frameSource.values())].sort();
   }
 
   /** Interpolated transform of `frameId` relative to its parent at `time`. */

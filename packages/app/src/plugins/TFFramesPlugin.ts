@@ -17,6 +17,10 @@ interface Settings {
   axis_scale: number;
   show_labels: boolean;
   show_connections: boolean;
+  /** Only show frames last published by this TF channel; '' = all sources. */
+  source: string;
+  /** Comma-separated substrings; a frame shows if it matches any. '' = all. */
+  frame_filter: string;
 }
 
 const CONNECTION_COLOR = 0xffcc33;
@@ -51,6 +55,8 @@ export class TFFramesPlugin implements DisplayPlugin {
       axis_scale: 0.3,
       show_labels: true,
       show_connections: true,
+      source: '',
+      frame_filter: '',
       ...(initial as Partial<Settings> | undefined),
     };
 
@@ -70,7 +76,7 @@ export class TFFramesPlugin implements DisplayPlugin {
   // --- per-frame update ---
 
   onRender(): void {
-    const frames = this.ctx.tf.getFrameList();
+    const frames = this.filterFrames(this.ctx.tf.getFrameList());
     this.syncVisuals(frames);
 
     // Place every frame at its pose in the fixed frame; hide unresolved ones.
@@ -86,6 +92,24 @@ export class TFFramesPlugin implements DisplayPlugin {
     }
 
     this.updateConnections(frames);
+  }
+
+  /** Apply the source + frame-name filters to the full frame list. */
+  private filterFrames(frames: string[]): string[] {
+    const { source } = this.settings;
+    const patterns = this.settings.frame_filter
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0);
+    if (!source && patterns.length === 0) return frames;
+    return frames.filter((f) => {
+      if (source && this.ctx.tf.getFrameSource(f) !== source) return false;
+      if (patterns.length > 0) {
+        const lf = f.toLowerCase();
+        if (!patterns.some((p) => lf.includes(p))) return false;
+      }
+      return true;
+    });
   }
 
   /** Add visuals for new frames, drop visuals for vanished ones. */
@@ -170,10 +194,13 @@ export class TFFramesPlugin implements DisplayPlugin {
     }
     this.connections.visible = true;
 
+    const visible = new Set(frames);
     const pts: number[] = [];
     for (const name of frames) {
       const link = this.ctx.tf.lookupTransform(name);
       if (!link || link.parent === name) continue;
+      // Don't draw a link to a parent that the filter has hidden.
+      if (!visible.has(link.parent)) continue;
       const child = this.ctx.tf.resolveToFixed(name);
       const parent = this.ctx.tf.resolveToFixed(link.parent);
       if (!child || !parent) continue;
@@ -198,6 +225,13 @@ export class TFFramesPlugin implements DisplayPlugin {
 
   getSchema(): PropSchema {
     return {
+      source: {
+        kind: 'enum',
+        label: 'Source',
+        default: '',
+        options: () => this.ctx?.tf.getSourceChannels() ?? [],
+      },
+      frame_filter: { kind: 'string', label: 'Frame filter', default: '' },
       axis_scale: { kind: 'number', label: 'Axis scale', default: 0.3, min: 0.01, max: 5, step: 0.05 },
       show_labels: { kind: 'boolean', label: 'Frame labels', default: true },
       show_connections: { kind: 'boolean', label: 'Parent links', default: true },
