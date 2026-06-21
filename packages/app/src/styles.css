@@ -646,6 +646,127 @@ button:disabled {
   justify-content: center;
 }
 
+.plottab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.plottab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.plot-series-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.plot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.plot-chip-x {
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+.plot-chip-x:hover {
+  color: var(--red);
+}
+.plot-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.plot-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.plot-hint {
+  font-size: 11px;
+}
+.plot-panels {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.plot-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  flex: 1 0 200px;
+  border-bottom: 1px solid var(--border);
+}
+.plot-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 12px;
+  background: var(--bg-2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.plot-panel-x {
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 0 4px;
+}
+.plot-panel-x:hover {
+  color: var(--red);
+}
+.plot-panel-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.plottab-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.plot-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.plot-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-height: 22px;
+  padding: 2px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.plot-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tab-error {
   height: 100%;
   overflow: auto;
