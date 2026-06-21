@@ -16,9 +16,18 @@ interface ConnectionState {
   disconnect: () => void;
 }
 
+// Derive the hub host from the page's own host so the app connects back to the
+// machine that served it — works whether that's localhost, a VM's IP, or a
+// port-forwarded host. Mirrors the RobotModel asset-host derivation. Override
+// explicitly with VITE_HUB_URL when the hub lives elsewhere.
+const hubHost =
+  typeof location !== 'undefined' && location.hostname
+    ? location.hostname
+    : 'localhost';
+
 const DEFAULT_URL =
   (import.meta.env.VITE_HUB_URL as string | undefined) ??
-  'ws://localhost:7777?role=client';
+  `ws://${hubHost}:7777?role=client`;
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
   status: 'disconnected',

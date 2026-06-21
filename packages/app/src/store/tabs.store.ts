@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { uuid } from '../core/uuid.js';
 
 export type TabType = '3d' | 'image' | 'plot' | 'map' | 'inspector' | 'log';
 
@@ -37,10 +38,6 @@ export const TAB_META: Record<TabType, { label: string; icon: string }> = {
   inspector: { label: 'Inspector', icon: '🔍' },
   log: { label: 'Log', icon: '📋' },
 };
-
-function uuid(): string {
-  return crypto.randomUUID();
-}
 
 function makeTab(type: TabType): TabConfig {
   return {

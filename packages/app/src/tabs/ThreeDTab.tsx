@@ -11,6 +11,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SceneManager } from '../core/SceneManager.js';
+import { uuid } from '../core/uuid.js';
 import { tfManager } from '../core/TFManager.js';
 import { hubClient } from '../protocol/HubClient.js';
 import type { DisplayPlugin } from '../core/plugin.js';
@@ -74,7 +75,7 @@ export function ThreeDTab({ tabId }: Props) {
     cancelled?: () => boolean,
   ): Promise<void> => {
     if (!scene) return;
-    const id = init?.id ?? crypto.randomUUID();
+    const id = init?.id ?? uuid();
     const plugin = pluginRegistry.create(type, id, init?.settings);
     if (init?.name) plugin.name = init.name;
     plugin.enabled = init?.enabled ?? true;
