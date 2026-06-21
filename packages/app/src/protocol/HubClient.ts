@@ -26,6 +26,18 @@ export type ConnectionStatus =
 type ChannelListCb = (channels: ChannelInfo[]) => void;
 type StatusCb = (status: ConnectionStatus) => void;
 
+interface SubEntry {
+  handler: MessageHandler;
+  maxHz?: number;
+}
+interface SubState {
+  /** Global id the handlers are currently registered under, or null if the
+   * channel isn't advertised yet (deferred). */
+  boundId: number | null;
+  entries: Set<SubEntry>;
+  unreg: Map<SubEntry, () => void>;
+}
+
 export class HubClient {
   private ws: WebSocket | null = null;
   private url = '';
@@ -37,8 +49,13 @@ export class HubClient {
   private nameToId = new Map<string, number>();
   readonly router = new MessageRouter();
 
-  /** name -> active subscriber count (across all tabs). */
-  private subCounts = new Map<string, number>();
+  /**
+   * Active subscriptions, keyed by channel *name* (the stable identity across
+   * reconnects — the hub may reassign global ids when it or a source restarts).
+   * Each name holds its handler entries, the id they're currently registered
+   * under (`boundId`), and the router unregister fns so we can re-key them.
+   */
+  private subs = new Map<string, SubState>();
 
   private channelListCbs = new Set<ChannelListCb>();
   private statusCbs = new Set<StatusCb>();
@@ -111,47 +128,71 @@ export class HubClient {
     handler: MessageHandler,
     opts?: { maxHz?: number },
   ): () => void {
-    let unregister: (() => void) | null = null;
-    const id = this.nameToId.get(channelName);
-    if (id !== undefined) {
-      unregister = this.router.register(id, handler);
-      this.incSub(channelName, id, opts?.maxHz);
-    } else {
-      // Defer: re-attempt when the channel list changes.
-      const cb: ChannelListCb = () => {
-        const newId = this.nameToId.get(channelName);
-        if (newId !== undefined) {
-          this.channelListCbs.delete(cb);
-          unregister = this.router.register(newId, handler);
-          this.incSub(channelName, newId, opts?.maxHz);
-        }
-      };
-      this.channelListCbs.add(cb);
+    let sub = this.subs.get(channelName);
+    if (!sub) {
+      sub = { boundId: null, entries: new Set(), unreg: new Map() };
+      this.subs.set(channelName, sub);
     }
+    const entry: SubEntry = { handler, maxHz: opts?.maxHz };
+    sub.entries.add(entry);
+    // Bind now if the channel is already advertised; otherwise this is deferred
+    // and `bindSub` will run again when the channel appears (advertise) or the
+    // connection (re)establishes (server_info).
+    this.bindSub(channelName);
 
     return () => {
-      unregister?.();
-      const curId = this.nameToId.get(channelName);
-      if (curId !== undefined) this.decSub(channelName, curId);
+      const s = this.subs.get(channelName);
+      if (!s || !s.entries.has(entry)) return;
+      s.entries.delete(entry);
+      s.unreg.get(entry)?.();
+      s.unreg.delete(entry);
+      if (s.entries.size === 0) {
+        if (s.boundId !== null) {
+          this.send({ op: 'unsubscribe', channels: [{ id: s.boundId }] });
+        }
+        this.subs.delete(channelName);
+      }
     };
   }
 
-  private incSub(name: string, id: number, maxHz?: number): void {
-    const next = (this.subCounts.get(name) ?? 0) + 1;
-    this.subCounts.set(name, next);
-    if (next === 1) {
+  /**
+   * Reconcile one subscription with the current channel list: register its
+   * handlers under the channel's current global id (re-keying if the id
+   * changed) and send a `subscribe` op when needed. `force` re-sends the op even
+   * if the id is unchanged — used after a (re)connect, when the broker has no
+   * record of our prior subscriptions.
+   */
+  private bindSub(name: string, force = false): void {
+    const sub = this.subs.get(name);
+    if (!sub || sub.entries.size === 0) return;
+    const id = this.nameToId.get(name);
+
+    if (id === undefined) {
+      // Channel not present (yet) — drop any stale registration.
+      for (const u of sub.unreg.values()) u();
+      sub.unreg.clear();
+      sub.boundId = null;
+      return;
+    }
+
+    const idChanged = sub.boundId !== id;
+    if (idChanged) {
+      for (const u of sub.unreg.values()) u();
+      sub.unreg.clear();
+      sub.boundId = id;
+    }
+    for (const e of sub.entries) {
+      if (!sub.unreg.has(e)) sub.unreg.set(e, this.router.register(id, e.handler));
+    }
+    if (idChanged || force) {
+      const maxHz = [...sub.entries].map((e) => e.maxHz).find((v) => v != null);
       this.send({ op: 'subscribe', channels: [{ id, max_hz: maxHz }] });
     }
   }
 
-  private decSub(name: string, id: number): void {
-    const next = (this.subCounts.get(name) ?? 1) - 1;
-    if (next <= 0) {
-      this.subCounts.delete(name);
-      this.send({ op: 'unsubscribe', channels: [{ id }] });
-    } else {
-      this.subCounts.set(name, next);
-    }
+  /** Re-reconcile every subscription (e.g. after the channel list changes). */
+  private rebindAll(force: boolean): void {
+    for (const name of this.subs.keys()) this.bindSub(name, force);
   }
 
   onChannelList(cb: ChannelListCb): () => void {
@@ -206,11 +247,17 @@ export class HubClient {
     this.channels.clear();
     this.nameToId.clear();
     for (const c of info.channels) this.addChannel(c);
+    // A fresh server_info means a (re)connected socket: the broker has no record
+    // of our subscriptions, so force-resend them all (re-keying to current ids).
+    this.rebindAll(true);
     this.emitChannelList();
   }
 
   private applyAdvertise(msg: Advertise & { channel: ChannelInfo }): void {
     this.addChannel(msg.channel);
+    // Binds any subscription that was waiting for this channel (or re-keys one
+    // whose id changed). Already-bound subs are left untouched.
+    this.rebindAll(false);
     this.emitChannelList();
   }
 
@@ -219,6 +266,7 @@ export class HubClient {
     if (id !== undefined) {
       this.channels.delete(id);
       this.nameToId.delete(msg.channel_name);
+      this.bindSub(msg.channel_name); // tears down the now-stale registration
       this.emitChannelList();
     }
   }

@@ -51,6 +51,10 @@ export function InspectorTab({ tabId }: Props) {
 
   useEffect(() => {
     if (!selected) return;
+    // Drop the previous channel's snapshot so we never relabel stale data with
+    // the newly-selected channel's name while waiting for its first message.
+    setSnapshot(null);
+    setHz(0);
     rateRef.current = { count: 0, windowStart: performance.now(), hz: 0 };
 
     const handler = (msg: RoutedMessage) => {
