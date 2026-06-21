@@ -10,7 +10,7 @@ WebViz is a browser-based visualization platform for robots and real-time system
 - **Source-agnostic** — the browser reasons only about channel *names* + schema types, never about where data came from (ROS, file, custom SDK). The hub erases origin.
 - **Tabbed workspace** — the app is a set of independent tabs sharing one connection.
 
-The repo is a **vertical slice in progress**. Working tabs: **Inspector** and **3D** (with a `RobotModel` display plugin, TFManager, and SceneManager). The tab store models all six types (`3d`, `image`, `plot`, `map`, `inspector`, `log`); Image/Plot/Map/Log renderers, the rest of the plugin catalogue (PointCloud, Marker, LaserScan, …), recording, and C++/ROS2 SDKs are not yet built.
+The repo is a **vertical slice in progress**. Working tabs: **Inspector** and **3D** (with `RobotModel` and `TFFrames` display plugins, TFManager, and SceneManager). The tab store models all six types (`3d`, `image`, `plot`, `map`, `inspector`, `log`); Image/Plot/Map/Log renderers, the rest of the plugin catalogue (PointCloud, Marker, LaserScan, …), recording, and C++/ROS2 SDKs are not yet built.
 
 ## Commands
 
@@ -52,6 +52,7 @@ Three TS packages + a Python SDK, pnpm workspace (`packages/*`), ESM throughout 
 ### `packages/hub` — broker + asset server (`main.ts` wires both, sharing one registry)
 - `broker.ts` — WebSocketServer on :7777. Same port serves both roles, distinguished by query string `?role=source|client` (`&id=<sourceId>`). Sources advertise channels and push frames; the broker fans each frame out to subscribed clients, enforcing per-`(channel, client)` `max_hz` throttling. `injectJson()` lets a non-WS HTTP caller publish (used by `/api/inject`).
 - `channel_registry.ts` — maps each source's *local* channel ids to *global* ids, renaming on collision (`resolveLocal`, `advertise`). This is the source-agnostic erasure layer.
+- `session_store.ts` — `SessionStore`: persists workspace layouts as JSON files under `dataDir` (`WEBVIZ_DATA_DIR`, default `data/layouts`), backing the `/api/layouts` REST endpoints. The hub is the shared/multi-user source of truth; the app also keeps a localStorage copy. Layout names are sanitized to a flat, safe filename namespace.
 - `asset_server.ts` — HTTP :8080: serves the built app, plus REST `GET /api/channels`, `GET/POST /api/layouts` (+ `/:id`), `POST /api/inject`, and `/assets/*`. Has path-traversal guarding for static serving. The `/assets/` prefix is shared by two roots — robot descriptions/meshes (`assetsDir`) and the app's own Vite bundle (which Vite also emits under `/assets/`, i.e. `webDir/assets/*`) — so it resolves `assetsDir` first, then falls back to the app bundle, then 404s.
 - Ports/dirs are overridable via env: `WEBVIZ_WS_PORT`, `WEBVIZ_HTTP_PORT`, `WEBVIZ_WEB_DIR`, `WEBVIZ_ASSETS_DIR`, `WEBVIZ_DATA_DIR`, `ALLOWED_ORIGINS`.
 
@@ -66,6 +67,7 @@ The data path is **HubClient → MessageRouter → tab handlers**:
 - `core/TFManager.ts` — shared singleton TF tree: subscribes to all `wv/Transform`(`Array`) channels, 5s rolling buffer per frame, **SLERP/LERP interpolation**, `resolveToFixed(frame)` composes the parent chain into the fixed frame.
 - `core/plugin.ts` — `DisplayPlugin` contract + `PluginContext` (`{ hub, tf, scene }`) + `pluginRegistry`. `plugins/index.ts` registers built-ins (import for side effect before reading the catalogue).
 - `plugins/RobotModelPlugin.ts` — renders a URDF via `urdf-loader` with three independently switchable input sources: **URDF** (`local` folder upload **or** a `wv/RobotModel` channel), **joints** (`manual` sliders **or** `wv/JointState`), **pose** (`manual` xyz/rpy **or** TF/`resolveToFixed`). Defaults to all-channel so a published robot auto-displays; loading a local folder flips joints/pose to manual preview. Emits a validation report (joints + limits, meshes loaded/failed) consumed by `RobotModelProperties`. Remote meshes load from the hub asset server (anchored on `ur_description/`); local meshes resolve to blob URLs.
+- `plugins/TFFramesPlugin.ts` — visualizes the TF tree: an `AxesHelper` triad + camera-facing canvas-texture label per frame, plus parent→child line segments. A **pure TFManager consumer** — no channel binding of its own; each frame is placed via `resolveToFixed` (the scene root *is* the fixed frame), unresolved frames are hidden. Uses the generic `PropSchema` Properties form (axis scale, labels, parent links).
 - `core/meshResolver.ts` — `LocalAssetResolver`: indexes folder-picked files by `webkitRelativePath`, resolves `package://`/relative refs by **longest trailing-segment match**, and exposes a `THREE.LoadingManager` whose `setURLModifier` routes every loader request (mesh + DAE textures / GLTF `.bin`) to a blob URL.
 
 ### `sdks/python` — minimal client

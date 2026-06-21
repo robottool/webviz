@@ -6,7 +6,9 @@
 
 import { pluginRegistry } from '../core/plugin.js';
 import { robotModelFactory } from './RobotModelPlugin.js';
+import { tfFramesFactory } from './TFFramesPlugin.js';
 
 pluginRegistry.register('RobotModel', 'Robot Model', robotModelFactory);
+pluginRegistry.register('TFFrames', 'TF', tfFramesFactory);
 
 export { pluginRegistry };
