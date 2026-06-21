@@ -979,6 +979,22 @@ Robot ──► Python SDK ──► Hub (cloud VM, TLS) ──► Browser (anyw
 ```
 Add `wss://` and JWT auth for any public-facing deployment.
 
+### Option D — Per-user desktop app (installed client)
+```
+Robot ──► SDK ──► Hub (one box on the LAN) :7777   ◄── data broadcast
+                   └── :8080  /api (layouts) + /assets (meshes)
+                              ▲        ▲        ▲
+                          User A   User B   User C    ← each runs an installed
+                           app      app      app        app; subscribes by name
+```
+Instead of every user opening `http://hub:8080`, the app ships as a downloadable, double-click client that each viewer installs once. The Hub keeps only its broker + `/api` + `/assets` roles; serving the app bundle becomes the installer's job. This is purely a *distribution* change — the app is already a pure WebSocket subscriber, so the wire protocol is unchanged, and the deployment becomes a clean publisher/subscriber system (sources publish to the Hub; each installed app subscribes to the channels it wants).
+
+**Packaging:** Tauri (≈5–10 MB, OS-native webview, recommended), Electron (≈150 MB, bundles Chromium → rendering identical to the verified browser build), or a PWA ("Install" from the browser — lightest effort, but still browser-backed).
+
+**Prerequisite — one hub address (§16.3).** A served-from-Hub app infers the Hub from `location` + the dev proxy; an installed app (loaded from `file://`) cannot. Before packaging, all three endpoints — WS `:7777`, REST `:8080/api`, assets `:8080/assets` — must derive from a single user-supplied, persisted hub address, surfaced as a "Connect to hub" screen (optionally with mDNS LAN discovery).
+
+**Does not change egress (§16.2).** Local install saves only the one-time app-bundle download; live data still fans out Hub → each client. It is a UX/distribution win, not a scaling one.
+
 ### Docker Compose (Option A)
 ```yaml
 version: '3.8'
@@ -1028,6 +1044,8 @@ services:
 | JWT secret rotation disrupts active sessions | Low | Medium | Refresh token rotation; configurable expiry; graceful re-auth flow |
 | ROS 2 adapter misses fast topics (100+ Hz) | Medium | Medium | rosbridge-style throttle_rate per topic; configurable per adapter |
 | Multiple browser tabs fighting over a single Hub connection | Low | Low | Hub is multi-client by design; each browser tab is a separate WS client |
+| Single-origin fan-out: many viewers of a heavy channel saturate the Hub NIC | Medium | High | Per-(channel, client) `max_hz`; subscribe-by-name (clients pull only what they show); relay/fan-out tier when many viewers share one heavy stream (§16.2) |
+| Slow/stalled client backs up Hub memory (no `bufferedAmount` guard) | Medium | Medium | Drop frames for clients whose send buffer exceeds a threshold; disconnect chronically-behind clients (§16.2) |
 
 ---
 
@@ -1050,3 +1068,19 @@ Finally, eliminating ICE/STUN/TURN negotiation reduces Hub complexity to a simpl
 **When to reconsider:**
 
 If WebViz is deployed for human-in-the-loop teleoperation over the public internet (remote driving via LTE/5G), TCP head-of-line blocking on a degraded connection becomes a safety concern. In that scenario, the Hub should be extended to act as a WebRTC signaling server, offloading video to a hardware-accelerated UDP peer connection. Telemetry would remain on WebSocket. This hybrid model accepts looser video–telemetry sync in exchange for resilient video delivery under packet loss.
+
+### 16.2 Fan-out scaling: single-origin broker
+
+The Hub is one process that is both origin and sole fan-out point: each frame is serialized once (`fanout()` caches the encoded buffer), then `ws.send()` to every subscribed client. Cost is therefore **egress ≈ Σ_channels (frame_size × rate × subscribed_clients)**, and the ceiling is the Hub machine's NIC, then its single event loop. Light JSON channels (TF, JointState) serve dozens of viewers comfortably; a multi-MB `wv/PointCloud` at 10 Hz can saturate a 1 GbE link in ~2 clients.
+
+This is the **live-streaming** fan-out problem, not video-on-demand. Unlike a YouTube file — static, identical bytes for everyone, cacheable at CDN edges — WebViz frames are real-time and per-moment, so there is **nothing to cache** and no edge tier to lean on (closer to YouTube *Live* than to VOD). Two properties keep the single-origin model viable on a LAN: encode-once/send-many, and subscribe-by-name (a client only pulls the channels it displays). The per-(channel, client) `max_hz` throttle lets monitoring viewers trade rate for bandwidth — the crude analogue of adaptive bitrate.
+
+**Gap:** `fanout()` has no backpressure handling — `ws.send()` is issued with no `bufferedAmount` check, so a slow client on a heavy channel grows Hub memory unbounded. A `bufferedAmount`-threshold frame-drop (and disconnect for chronically-behind clients) is the cheap first hardening.
+
+**When to reconsider:** for many simultaneous viewers of the same heavy stream, insert a relay/fan-out tier (Hub → N relay nodes → clients), mirroring a live-streaming CDN. This is the LAN-scaling analogue of Option C's cloud relay, and does not require a protocol change — relays are just clients that re-advertise.
+
+### 16.3 Hub-address resolution (centralized client config)
+
+The app currently locates the Hub three ways: the WS URL from `location.hostname` (or `VITE_HUB_URL`), `/api` + `/assets` via the Vite dev proxy, and RobotModel meshes via an absolute `http://${location.hostname}:8080`. This works only when the app is *served by the Hub*. Any other deployment — the installed desktop app (§14 Option D), or a browser pointed at a separately-hosted app — has no meaningful `location` host and no dev proxy.
+
+The fix is one source of truth: a user-supplied, persisted hub address from which **all** endpoints (WS `:7777`, REST/assets `:8080`) are derived, presented as a "Connect to hub" screen and optionally discovered via mDNS. This is a prerequisite for Option D and also tidies the remote-browser/VM case — the connection field already overrides the WS URL today; this generalizes that override to every endpoint.
