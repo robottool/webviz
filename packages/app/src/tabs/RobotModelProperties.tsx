@@ -5,7 +5,8 @@
  * the live channel. Replaces the generic schema form for RobotModel displays.
  */
 
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { hubClient } from '../protocol/HubClient.js';
 import type {
   RobotModelPlugin,
@@ -37,22 +38,32 @@ export function RobotModelProperties({
   onChange: () => void;
 }) {
   const [, force] = useReducer((n: number) => n + 1, 0);
+  const [showMissing, setShowMissing] = useState(false);
   const folderRef = useRef<HTMLInputElement>(null);
+  const meshFolderRef = useRef<HTMLInputElement>(null);
 
   // Re-render as the async load progresses and the report fills in.
   useEffect(() => plugin.onChange(force), [plugin]);
 
   // <input webkitdirectory> isn't a standard React attribute; set it directly.
   useEffect(() => {
-    const el = folderRef.current;
-    if (el) {
-      el.setAttribute('webkitdirectory', '');
-      el.setAttribute('directory', '');
+    for (const el of [folderRef.current, meshFolderRef.current]) {
+      el?.setAttribute('webkitdirectory', '');
+      el?.setAttribute('directory', '');
     }
   }, []);
 
   const s = plugin.getSettings() as unknown as RMSettings;
   const report = plugin.getReport();
+
+  // Auto-open the recovery dialog when a local model has missing meshes; it
+  // re-opens whenever the missing set changes and closes once all resolve.
+  const localMissing = s.urdf_source === 'local' && report.meshFailed.length > 0;
+  const failedSig = report.meshFailed.slice().sort().join('|');
+  useEffect(() => {
+    setShowMissing(localMissing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failedSig, localMissing]);
 
   const set = (patch: Partial<RMSettings>) => {
     plugin.updateSettings(patch as Record<string, unknown>);
@@ -70,6 +81,17 @@ export function RobotModelProperties({
       onChange();
       force();
     }
+    e.target.value = '';
+  };
+
+  const onPickMeshFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) {
+      await plugin.addMeshFiles(files);
+      onChange();
+      force();
+    }
+    e.target.value = '';
   };
 
   return (
@@ -112,6 +134,60 @@ export function RobotModelProperties({
       )}
 
       <ReportView report={report} />
+
+      {/* Hidden picker + manual reopen for the missing-mesh recovery flow. */}
+      <input
+        ref={meshFolderRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={onPickMeshFolder}
+      />
+      {localMissing && (
+        <button
+          className="btn-warn"
+          style={{ width: '100%', marginTop: 6 }}
+          onClick={() => setShowMissing(true)}
+        >
+          ⚠ Locate {report.meshFailed.length} missing mesh
+          {report.meshFailed.length > 1 ? 'es' : ''}…
+        </button>
+      )}
+
+      {showMissing &&
+        createPortal(
+          <div className="modal-backdrop" onClick={() => setShowMissing(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                ⚠ {report.meshFailed.length} mesh
+                {report.meshFailed.length > 1 ? 'es' : ''} not found
+              </div>
+              <div className="modal-body">
+                <p>
+                  The URDF references meshes that weren’t in the selected folder —
+                  usually a <code>package://</code> path that doesn’t match your
+                  layout. Pick the folder that contains these meshes and WebViz
+                  will match them by filename.
+                </p>
+                <div className="missing-list">
+                  {report.meshFailed.map((m, i) => (
+                    <div key={i}>{m}</div>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-foot">
+                <button onClick={() => setShowMissing(false)}>Dismiss</button>
+                <button
+                  className="btn-primary"
+                  onClick={() => meshFolderRef.current?.click()}
+                >
+                  Select mesh folder…
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {report.loaded && (
         <>

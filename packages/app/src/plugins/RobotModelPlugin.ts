@@ -103,6 +103,8 @@ export class RobotModelPlugin implements DisplayPlugin {
   private loading = false;
   private report: ValidationReport = emptyReport();
   private localResolver: LocalAssetResolver | null = null;
+  /** Accumulated locally-picked files (URDF + meshes), for re-resolution. */
+  private localFiles: File[] = [];
 
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
@@ -195,24 +197,47 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   /** Load a URDF from a locally-picked folder (the file list of an <input>). */
   async loadFromFiles(files: File[]): Promise<void> {
-    const urdfFile = files.find(
+    this.localFiles = files;
+    // A local file has no live data, so preview it with manual joints + pose.
+    this.settings.joint_source = 'manual';
+    this.settings.pose_source = 'manual';
+    await this.reloadLocal();
+  }
+
+  /**
+   * Merge an additional folder of meshes into the local set and reload. Used to
+   * recover when the URDF's `package://` paths don't match the first folder —
+   * the resolver matches by filename, so any folder containing the meshes works.
+   */
+  async addMeshFiles(extra: File[]): Promise<void> {
+    if (extra.length === 0) return;
+    const seen = new Set(this.localFiles.map((f) => f.webkitRelativePath || f.name));
+    for (const f of extra) {
+      const key = f.webkitRelativePath || f.name;
+      if (!seen.has(key)) {
+        this.localFiles.push(f);
+        seen.add(key);
+      }
+    }
+    await this.reloadLocal();
+  }
+
+  private async reloadLocal(): Promise<void> {
+    const urdfFile = this.localFiles.find(
       (f) => /\.urdf$/i.test(f.name) || /\.urdf$/i.test(f.webkitRelativePath),
     );
+    this.settings.urdf_source = 'local';
     if (!urdfFile) {
       this.report = { ...emptyReport(), error: 'No .urdf file in the selected folder' };
       this.emitChange();
       return;
     }
-    // A local file has no live data, so preview it with manual joints + pose.
-    this.settings.urdf_source = 'local';
-    this.settings.joint_source = 'manual';
-    this.settings.pose_source = 'manual';
     const text = await urdfFile.text();
     this.localResolver?.dispose();
-    this.localResolver = new LocalAssetResolver(files);
+    this.localResolver = new LocalAssetResolver(this.localFiles);
     await this.loadRobot(
       () => this.buildLoader(this.localResolver ?? undefined).parse(text) as URDFRobot,
-      `local:${urdfFile.webkitRelativePath || urdfFile.name}:${files.length}`,
+      `local:${urdfFile.webkitRelativePath || urdfFile.name}:${this.localFiles.length}`,
     );
   }
 
