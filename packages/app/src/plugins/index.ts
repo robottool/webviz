@@ -9,10 +9,18 @@ import { robotModelFactory } from './RobotModelPlugin.js';
 import { tfFramesFactory } from './TFFramesPlugin.js';
 import { markerFactory } from './MarkerPlugin.js';
 import { pointCloudFactory } from './PointCloudPlugin.js';
+import { laserScanFactory } from './LaserScanPlugin.js';
+import { occupancyGridFactory } from './OccupancyGridPlugin.js';
+import { pathFactory } from './PathPlugin.js';
+import { poseFactory } from './PosePlugin.js';
 
 pluginRegistry.register('RobotModel', 'Robot Model', robotModelFactory);
 pluginRegistry.register('TFFrames', 'TF', tfFramesFactory);
 pluginRegistry.register('Marker', 'Marker', markerFactory);
 pluginRegistry.register('PointCloud', 'Point Cloud', pointCloudFactory);
+pluginRegistry.register('LaserScan', 'Laser Scan', laserScanFactory);
+pluginRegistry.register('OccupancyGrid', 'Occupancy Grid', occupancyGridFactory);
+pluginRegistry.register('Path', 'Path', pathFactory);
+pluginRegistry.register('Pose', 'Pose', poseFactory);
 
 export { pluginRegistry };

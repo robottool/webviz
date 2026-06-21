@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """WebViz demo data source.
 
-Publishes a moving robot transform, an orbiting marker, and a battery telemetry
-channel so the browser app has live data to display.
+Publishes a spread of channels so the browser app has live data to display: a
+moving robot transform, an orbiting marker, battery telemetry, and one of each
+of the remaining 3D schemas — LaserScan, OccupancyGrid, Path, and Pose (all
+JSON, so they flow through the dependency-free HTTP path).
 
 Two modes:
 
@@ -18,6 +20,7 @@ uses webviz.Client (§6.1). Both feed the same channels the browser subscribes t
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import math
 import time
@@ -27,6 +30,70 @@ import urllib.request
 def quat_from_yaw(yaw: float) -> list[float]:
     """Quaternion [x, y, z, w] for a rotation about +Z."""
     return [0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)]
+
+
+def laser_scan(t: float) -> dict:
+    """A 180-beam scan in base_link: a wavy wall at ~3.5 m."""
+    n = 180
+    amin, amax = -math.pi / 2, math.pi / 2
+    inc = (amax - amin) / (n - 1)
+    ranges = [round(3.5 + 1.0 * math.sin((amin + i * inc) * 3 + t), 3) for i in range(n)]
+    return {
+        "frame_id": "base_link",
+        "angle_min": amin,
+        "angle_max": amax,
+        "angle_increment": inc,
+        "range_min": 0.1,
+        "range_max": 10.0,
+        "ranges": ranges,
+    }
+
+
+def occupancy_grid(t: float) -> dict:
+    """A 20×20 map in odom: occupied border + an orbiting occupied blob."""
+    w = h = 20
+    res = 0.5
+    cx, cy = w / 2 + 5 * math.cos(t), h / 2 + 5 * math.sin(t)
+    cells = bytearray(w * h)
+    for j in range(h):
+        for i in range(w):
+            if i in (0, w - 1) or j in (0, h - 1):
+                cells[j * w + i] = 100
+            elif (i - cx) ** 2 + (j - cy) ** 2 < 6:
+                cells[j * w + i] = 100
+    return {
+        "frame_id": "odom",
+        "resolution": res,
+        "width": w,
+        "height": h,
+        "origin": {"position": [-5.0, -5.0, 0.0], "orientation": [0, 0, 0, 1]},
+        "data": base64.b64encode(bytes(cells)).decode(),
+    }
+
+
+def path(t: float) -> dict:
+    """An expanding spiral arc in odom."""
+    poses = []
+    for i in range(20):
+        s = i / 19.0
+        ang = s * math.pi + t * 0.5
+        r = 1.0 + 2.0 * s
+        poses.append(
+            {"position": [r * math.cos(ang), r * math.sin(ang), 0.05], "orientation": [0, 0, 0, 1]}
+        )
+    return {"id": "plan", "frame_id": "odom", "color": [0.2, 0.8, 1.0, 1.0], "poses": poses}
+
+
+def pose_estimate(t: float) -> dict:
+    """A pose estimate in odom with an anisotropic position covariance."""
+    return {
+        "id": "estimate",
+        "frame_id": "odom",
+        "position": [2.0 * math.cos(t), 2.0 * math.sin(t), 0.0],
+        "orientation": quat_from_yaw(t + math.pi / 2),
+        # 6×6 row-major; position block xx=0.3, xy=0.1, yy=0.6.
+        "covariance": [0.3, 0.1, 0, 0, 0, 0, 0.1, 0.6] + [0] * 28,
+    }
 
 
 def frames(t: float) -> list[tuple[str, str, dict]]:
@@ -66,6 +133,10 @@ def frames(t: float) -> list[tuple[str, str, dict]]:
         ("transforms", "wv/Transform", transform),
         ("markers", "wv/Marker", marker),
         ("battery", "wv/Custom", battery),
+        ("scan", "wv/LaserScan", laser_scan(t)),
+        ("map", "wv/OccupancyGrid", occupancy_grid(t)),
+        ("plan", "wv/Path", path(t)),
+        ("pose_estimate", "wv/Pose", pose_estimate(t)),
     ]
 
 
