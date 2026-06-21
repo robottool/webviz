@@ -829,6 +829,80 @@ button:disabled {
   min-width: 0;
 }
 
+.logtab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.logtab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.log-filter {
+  width: 180px;
+}
+.log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.log-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.log-row {
+  display: flex;
+  gap: 12px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+.log-row:hover {
+  background: var(--bg-2);
+}
+.log-time {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.log-level {
+  width: 48px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.log-name {
+  width: 110px;
+  flex-shrink: 0;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-msg {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* level colours (toolbar toggle text + row level cell) */
+.log-debug .log-level,
+.log-toggle.log-debug { color: var(--text-dim); }
+.log-info .log-level,
+.log-toggle.log-info { color: var(--green); }
+.log-warn .log-level,
+.log-toggle.log-warn { color: var(--yellow); }
+.log-error .log-level,
+.log-toggle.log-error { color: var(--red); }
+.log-error { background: rgba(248, 113, 113, 0.06); }
+
 .tab-error {
   height: 100%;
   overflow: auto;

@@ -176,6 +176,19 @@ export interface ImageFrame {
 /** `wv/Custom` — any user-defined JSON object. */
 export type Custom = Record<string, unknown>;
 
+/** `wv/Log` severity levels, in ascending order. */
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+
+/** `wv/Log` — one entry in an event/log stream. */
+export interface Log {
+  level: LogLevel;
+  /** logger / source name, e.g. "tf_manager". */
+  name: string;
+  message: string;
+  /** optional event time (seconds); the Log tab falls back to the frame timestamp. */
+  stamp?: number;
+}
+
 /** Map from schema name to its decoded payload type. */
 export interface SchemaMap {
   'wv/Transform': Transform;
@@ -189,6 +202,7 @@ export interface SchemaMap {
   'wv/Path': Path;
   'wv/Pose': PoseStamped;
   'wv/Image': ImageFrame;
+  'wv/Log': Log;
   'wv/Custom': Custom;
 }
 

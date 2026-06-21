@@ -9,6 +9,7 @@ import { ThreeDTab } from './ThreeDTab.js';
 import { ImageTab } from './ImageTab.js';
 import { PlotTab } from './PlotTab.js';
 import { MapTab } from './MapTab.js';
+import { LogTab } from './LogTab.js';
 import { PlaceholderTab } from './PlaceholderTab.js';
 
 export function TabRenderer({ tab }: { tab: TabConfig }) {
@@ -23,6 +24,8 @@ export function TabRenderer({ tab }: { tab: TabConfig }) {
       return <PlotTab tabId={tab.id} />;
     case 'map':
       return <MapTab tabId={tab.id} />;
+    case 'log':
+      return <LogTab tabId={tab.id} />;
     default:
       return <PlaceholderTab type={tab.type} />;
   }

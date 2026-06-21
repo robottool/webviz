@@ -96,6 +96,23 @@ def pose_estimate(t: float) -> dict:
     }
 
 
+def log_line(t: float) -> dict:
+    """A rotating wv/Log line for the Log tab: mostly INFO with periodic
+    DEBUG/WARN/ERROR so the level filters have something to act on."""
+    seq = int(t * 10)
+    src = ["hub", "tf", "scene", "battery", "nav"][seq % 5]
+    r = seq % 23
+    if r == 7:
+        level, msg = "WARN", "frame lidar_link not in TF tree"
+    elif r == 17:
+        level, msg = "ERROR", "path blocked, replanning"
+    elif r % 4 == 0:
+        level, msg = "DEBUG", f"tick {seq}"
+    else:
+        level, msg = "INFO", f"steady ({seq})"
+    return {"level": level, "name": src, "message": msg}
+
+
 def frames(t: float) -> list[tuple[str, str, dict]]:
     """Build the (channel, schema, data) tuples for time t."""
     x = 2.0 * math.cos(t)
@@ -137,6 +154,7 @@ def frames(t: float) -> list[tuple[str, str, dict]]:
         ("map", "wv/OccupancyGrid", occupancy_grid(t)),
         ("plan", "wv/Path", path(t)),
         ("pose_estimate", "wv/Pose", pose_estimate(t)),
+        ("log", "wv/Log", log_line(t)),
     ]
 
 
