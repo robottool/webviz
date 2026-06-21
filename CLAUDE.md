@@ -25,6 +25,7 @@ pnpm typecheck                             # typecheck all packages
 pnpm hub                                   # run hub: WS broker :7777 + HTTP/asset :8080 (tsx watch)
 pnpm app                                   # run app dev server (Vite) :5173, auto-connects ws://localhost:7777
 python3 sdks/python/demo_source.py         # feed demo data via HTTP /api/inject (no pip deps)
+python3 sdks/python/map_sim_demo.py        # feed the Map tab: scan-built map + wandering robot + raycast scan (HTTP, no pip deps)
 python3 sdks/python/robot_demo.py          # feed the 3D tab: UR5 RobotModel + JointState + base TF
 python3 sdks/python/pointcloud_demo.py     # feed the 3D tab: animated binary wv/PointCloud (needs `pip install websockets`)
 python3 sdks/python/image_demo.py          # feed the Image tab: animated binary wv/Image RGB8 (needs `pip install 'websockets>=11'`)
@@ -81,6 +82,7 @@ The data path is **HubClient → MessageRouter → tab handlers**:
 ### `sdks/python` — minimal client
 - `webviz/client.py` — `webviz.Client`: WS client that advertises channels and sends JSON/binary frames (mirrors the binary header from `binary.ts`). Requires `pip install websockets`.
 - `demo_source.py` — dependency-free demo; publishes transforms/markers/battery plus one of each remaining JSON 3D schema (LaserScan, OccupancyGrid, Path, Pose) via the hub's HTTP `/api/inject` instead of WS.
+- `map_sim_demo.py` — dependency-free Map-tab (§11.5) demo. A `MapSim` holds a random world as hidden ground truth (border walls + random rectangular obstacles, `--seed` for repeatability) and drives a dot robot on a collision-avoiding random walk (publishing `base_link→odom` `wv/Transform`). It **raycasts** a 360° `wv/LaserScan` against the truth and **builds the published `wv/OccupancyGrid` from those scans** (cells traversed→free, hit→occupied, rest→unknown) so the map fills in SLAM-style as the robot explores; the trajectory is a `wv/Path` (`trail`). Also HTTP `/api/inject`. Drive the Map tab with fixed frame `odom`, map=`map`, scan=`scan`, path=`trail`, robot=`base_link`.
 - `robot_demo.py` / `pointcloud_demo.py` / `image_demo.py` — WS demos built on `webviz.Client` (so they need `websockets`; `client.py` uses the `websockets.sync` API, which requires **websockets ≥ 11**): `robot_demo.py` feeds a UR5 `wv/RobotModel` + `wv/JointState` + base TF; `pointcloud_demo.py` streams animated binary `wv/PointCloud` frames; `image_demo.py` streams an animated RGB8 `wv/Image` (`camera_front`) for the Image tab. Each `*_payload()` duplicates the matching `binary.ts` payload layout.
 
 ## When changing the protocol
