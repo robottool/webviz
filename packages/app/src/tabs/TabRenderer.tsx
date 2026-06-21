@@ -8,6 +8,7 @@ import { InspectorTab } from './InspectorTab.js';
 import { ThreeDTab } from './ThreeDTab.js';
 import { ImageTab } from './ImageTab.js';
 import { PlotTab } from './PlotTab.js';
+import { MapTab } from './MapTab.js';
 import { PlaceholderTab } from './PlaceholderTab.js';
 
 export function TabRenderer({ tab }: { tab: TabConfig }) {
@@ -20,6 +21,8 @@ export function TabRenderer({ tab }: { tab: TabConfig }) {
       return <ImageTab tabId={tab.id} />;
     case 'plot':
       return <PlotTab tabId={tab.id} />;
+    case 'map':
+      return <MapTab tabId={tab.id} />;
     default:
       return <PlaceholderTab type={tab.type} />;
   }
