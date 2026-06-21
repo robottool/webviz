@@ -8,6 +8,7 @@ import { TopBar } from './ui/TopBar.js';
 import { TabBar } from './ui/TabBar.js';
 import { StatusBar } from './ui/StatusBar.js';
 import { TabRenderer } from './tabs/TabRenderer.js';
+import { TabErrorBoundary } from './ui/TabErrorBoundary.js';
 import { useConnectionStore } from './store/connection.store.js';
 import { useTabStore } from './store/tabs.store.js';
 
@@ -30,7 +31,11 @@ export function App() {
       <TopBar />
       <TabBar />
       <div className="tab-content">
-        {activeTab && <TabRenderer key={activeTab.id} tab={activeTab} />}
+        {activeTab && (
+          <TabErrorBoundary key={activeTab.id}>
+            <TabRenderer tab={activeTab} />
+          </TabErrorBoundary>
+        )}
       </div>
       <StatusBar />
     </div>

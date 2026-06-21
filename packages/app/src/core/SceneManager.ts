@@ -198,6 +198,10 @@ export class SceneManager {
     for (const id of [...this.objects.keys()]) this.removeObject(id);
     this.controls.dispose();
     this.renderer.dispose();
+    // dispose() frees three's GPU resources but not the underlying WebGL
+    // context; forceContextLoss() actually releases it, so per-tab renderers
+    // don't leak contexts and exhaust Chrome's ~16-per-page cap (black viewport).
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
   }
 }

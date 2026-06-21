@@ -10,7 +10,7 @@ WebViz is a browser-based visualization platform for robots and real-time system
 - **Source-agnostic** — the browser reasons only about channel *names* + schema types, never about where data came from (ROS, file, custom SDK). The hub erases origin.
 - **Tabbed workspace** — the app is a set of independent tabs sharing one connection.
 
-The repo is a **vertical slice in progress**. Working tabs: **Inspector** and **3D** — the 3D display-plugin catalogue is essentially complete: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose` (plus TFManager and SceneManager). The tab store models all six types (`3d`, `image`, `plot`, `map`, `inspector`, `log`); the remaining tab renderers (Image/Plot/Map/Log), recording, and C++/ROS2 SDKs are not yet built.
+The repo is a **vertical slice in progress**. Working tabs: **Inspector**, **3D**, and **Image** — the 3D display-plugin catalogue is essentially complete: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose` (plus TFManager and SceneManager). The tab store models all six types (`3d`, `image`, `plot`, `map`, `inspector`, `log`); the remaining tab renderers (Plot/Map/Log), recording, and C++/ROS2 SDKs are not yet built.
 
 ## Commands
 
@@ -27,6 +27,7 @@ pnpm app                                   # run app dev server (Vite) :5173, au
 python3 sdks/python/demo_source.py         # feed demo data via HTTP /api/inject (no pip deps)
 python3 sdks/python/robot_demo.py          # feed the 3D tab: UR5 RobotModel + JointState + base TF
 python3 sdks/python/pointcloud_demo.py     # feed the 3D tab: animated binary wv/PointCloud (needs `pip install websockets`)
+python3 sdks/python/image_demo.py          # feed the Image tab: animated binary wv/Image RGB8 (needs `pip install 'websockets>=11'`)
 ```
 
 The hub's asset server defaults `assetsDir` to the **repo root**, so robot descriptions are reachable at `/assets/ur_description/...` out of the box (override with `WEBVIZ_ASSETS_DIR` in production). The `RobotModel` plugin fetches URDF + meshes from `http://<host>:8080/assets`.
@@ -62,7 +63,8 @@ The data path is **HubClient → MessageRouter → tab handlers**:
 - `protocol/HubClient.ts` — **singleton** (`hubClient`), one WebSocket per browser window. Owns reconnection, the live channel list (from `server_info`/`advertise`/`unadvertise`), and **reference-counted subscriptions by channel name**: first subscriber sends `subscribe`, last sender of unsubscribe sends `unsubscribe`. Subscribing to a not-yet-advertised channel is deferred until it appears. Subscribe by *name*, not id.
 - `protocol/MessageRouter.ts` — fans one decoded frame out to every registered per-channel-id handler, so multiple tabs on the same channel each get their own callback.
 - `store/connection.store.ts`, `store/tabs.store.ts` — Zustand stores for connection state and the tab set/active tab. `TAB_META` defines the six tab types.
-- `tabs/TabRenderer.tsx` dispatches a `TabConfig` to its renderer; `InspectorTab.tsx` and `ThreeDTab.tsx` are live, others fall back to `PlaceholderTab.tsx`.
+- `tabs/TabRenderer.tsx` dispatches a `TabConfig` to its renderer; `InspectorTab.tsx`, `ThreeDTab.tsx`, and `ImageTab.tsx` are live, others fall back to `PlaceholderTab.tsx`. Each active tab is wrapped (in `App.tsx`) in `ui/TabErrorBoundary.tsx`, keyed by tab id — a tab that throws (e.g. the 3D tab when the browser can't create a WebGL context) shows an inline error instead of unmounting the whole app, with a tailored hint for WebGL-context failures.
+- **Image tab** (`tabs/ImageTab.tsx`) — the §11.3 camera grid and the first consumer of the binary data path *outside* the 3D scene. A user-configurable N×M grid (1×1/1×2/2×2/3×2, persisted in tab settings as `{ layout, cells }`); each cell binds one `wv/Image` channel (dropdown filtered to that schema) and blits decoded frames to a `<canvas>` sized to the source image and scaled via CSS `object-fit: contain`. Decodes with the shared `decodeImagePayload`: JPEG/PNG via `createImageBitmap`, RGB8 via `ImageData`. Skips frames while an async decode is in flight (no backlog under a fast publisher).
 - **3D tab** (`tabs/ThreeDTab.tsx`) — three-column workspace (Displays sidebar · Three.js viewport · Properties panel). Per-tab `SceneManager`; the TF tree and hub connection are shared singletons. The Properties panel is the generic schema-form (`PropSchema`) for most plugins, but RobotModel gets a custom panel (`tabs/RobotModelProperties.tsx`).
 - `core/SceneManager.ts` — owns the three.js scene/camera/OrbitControls and a **coalesced** rAF loop (`requestRender()` marks dirty; idle viewport draws nothing). World is +Z up. Plugins add/remove `Object3D`s by id.
 - `core/TFManager.ts` — shared singleton TF tree: subscribes to all `wv/Transform`(`Array`) channels, 5s rolling buffer per frame, **SLERP/LERP interpolation**, `resolveToFixed(frame)` composes the parent chain into the fixed frame. Also records the publishing channel per frame (`getFrameSource`/`getSourceChannels`) so displays can filter by source.
@@ -77,6 +79,7 @@ The data path is **HubClient → MessageRouter → tab handlers**:
 ### `sdks/python` — minimal client
 - `webviz/client.py` — `webviz.Client`: WS client that advertises channels and sends JSON/binary frames (mirrors the binary header from `binary.ts`). Requires `pip install websockets`.
 - `demo_source.py` — dependency-free demo; publishes transforms/markers/battery plus one of each remaining JSON 3D schema (LaserScan, OccupancyGrid, Path, Pose) via the hub's HTTP `/api/inject` instead of WS.
+- `robot_demo.py` / `pointcloud_demo.py` / `image_demo.py` — WS demos built on `webviz.Client` (so they need `websockets`; `client.py` uses the `websockets.sync` API, which requires **websockets ≥ 11**): `robot_demo.py` feeds a UR5 `wv/RobotModel` + `wv/JointState` + base TF; `pointcloud_demo.py` streams animated binary `wv/PointCloud` frames; `image_demo.py` streams an animated RGB8 `wv/Image` (`camera_front`) for the Image tab. Each `*_payload()` duplicates the matching `binary.ts` payload layout.
 
 ## When changing the protocol
 

@@ -6,6 +6,7 @@
 import type { TabConfig } from '../store/tabs.store.js';
 import { InspectorTab } from './InspectorTab.js';
 import { ThreeDTab } from './ThreeDTab.js';
+import { ImageTab } from './ImageTab.js';
 import { PlaceholderTab } from './PlaceholderTab.js';
 
 export function TabRenderer({ tab }: { tab: TabConfig }) {
@@ -14,6 +15,8 @@ export function TabRenderer({ tab }: { tab: TabConfig }) {
       return <InspectorTab tabId={tab.id} />;
     case '3d':
       return <ThreeDTab tabId={tab.id} />;
+    case 'image':
+      return <ImageTab tabId={tab.id} />;
     default:
       return <PlaceholderTab type={tab.type} />;
   }
