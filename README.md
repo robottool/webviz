@@ -5,19 +5,28 @@ Browser-based visualization platform for robots and real-time systems.
 
 ## Status: vertical slice
 
-This repository currently implements the foundational spine described in the design doc:
+This repository implements the foundational spine described in the design doc, with all six
+tabs and the full display-plugin catalogue now live:
 
 | Package | What works |
 |---|---|
 | `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
-| `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, REST + static serving (`:8080`) |
-| `packages/app` | Vite + React + TS app: `HubClient`, `FrameDecoder`, `MessageRouter`, connection/tab stores, tab shell, a live **Inspector** tab, and a **3D** tab (SceneManager + TFManager + plugin system) with a `RobotModel` display |
-| `sdks/python` | Minimal `webviz.Client`, `demo_source.py` (transforms/markers), and `robot_demo.py` (animated UR5 for the 3D tab) |
+| `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
+| `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose` |
+| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (animated UR5), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 
-Not yet implemented (future passes): Image / Plot / Map / Log tabs, the rest of the display
-plugin catalogue (PointCloud, Marker, LaserScan, …), recording, C++ / ROS2 SDKs.
+Not yet implemented (future passes): C++ / ROS2 SDKs.
 
 ## Quick start
+
+The fastest path is the one-shot launcher, which builds the protocol package and runs the
+hub + app together (Ctrl+C tears both down):
+
+```bash
+./dev.sh        # opens http://localhost:5173 (see its header comments for VM / remote access)
+```
+
+Or run each piece by hand:
 
 ```bash
 # 1. install JS deps
@@ -31,10 +40,16 @@ pnpm hub
 
 # 4. in another terminal, run the app dev server
 pnpm app        # opens http://localhost:5173
+```
 
-# 5. feed it demo data
-python3 sdks/python/demo_source.py     # transforms / markers / telemetry
+Then feed it demo data (each in its own terminal):
+
+```bash
+python3 sdks/python/demo_source.py     # transforms / markers / nav / log (no pip deps)
+python3 sdks/python/map_sim_demo.py    # SLAM-style map + wandering robot for the Map tab (no pip deps)
 python3 sdks/python/robot_demo.py      # animated UR5 arm for the 3D tab
+python3 sdks/python/pointcloud_demo.py # animated binary PointCloud for the 3D tab
+python3 sdks/python/image_demo.py      # animated RGB8 Image for the Image tab
 ```
 
 Open the app, it auto-connects to `ws://localhost:7777`.
@@ -43,6 +58,9 @@ Open the app, it auto-connects to `ws://localhost:7777`.
 - **3D tab**: add it from the `＋` menu and run `robot_demo.py` — a UR5 loads from the
   hub asset server, drives around on the grid, and waves. Toggle displays, pick the
   fixed frame, and edit plugin settings in the Properties panel.
+- **Other tabs**: Image (camera grid), Plot (live time-series), Map (2D top-down), and
+  Log (event stream) — add any from the `＋` menu. Split the workspace into panes, save
+  named layouts, and record a session to `.wvrec` (then load it back for playback).
 - **Load your own URDF**: in the 3D tab's RobotModel properties, switch URDF to
   **Local files**, click *Load URDF folder…*, and pick the folder containing your
   `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you

@@ -7,16 +7,13 @@ import { useEffect } from 'react';
 import { TopBar } from './ui/TopBar.js';
 import { TabBar } from './ui/TabBar.js';
 import { StatusBar } from './ui/StatusBar.js';
-import { TabRenderer } from './tabs/TabRenderer.js';
-import { TabErrorBoundary } from './ui/TabErrorBoundary.js';
+import { PlaybackBar } from './ui/PlaybackBar.js';
+import { WorkspaceView } from './ui/WorkspaceView.js';
 import { useConnectionStore } from './store/connection.store.js';
-import { useTabStore } from './store/tabs.store.js';
 
 export function App() {
   const connect = useConnectionStore((s) => s.connect);
   const url = useConnectionStore((s) => s.url);
-  const tabs = useTabStore((s) => s.tabs);
-  const activeTabId = useTabStore((s) => s.activeTabId);
 
   useEffect(() => {
     connect(url);
@@ -24,19 +21,12 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-
   return (
     <div className="app">
       <TopBar />
       <TabBar />
-      <div className="tab-content">
-        {activeTab && (
-          <TabErrorBoundary key={activeTab.id}>
-            <TabRenderer tab={activeTab} />
-          </TabErrorBoundary>
-        )}
-      </div>
+      <WorkspaceView />
+      <PlaybackBar />
       <StatusBar />
     </div>
   );

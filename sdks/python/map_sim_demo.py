@@ -8,16 +8,20 @@ SLAM-style as the robot explores instead of appearing complete from the start.
 Publishes the four channels the Map tab consumes:
 
     map        wv/OccupancyGrid   the *discovered* map (free/occupied/unknown)
-    transform  wv/Transform       base_link -> odom (the robot pose)
-    scan       wv/LaserScan       in base_link, raycast against the world
+    transform  wv/Transform       mobile_base_link -> odom (the robot pose)
+    scan       wv/LaserScan       in mobile_base_link, raycast against the world
     trail      wv/Path            the robot's recent trajectory (in odom)
+
+The robot body frame is `mobile_base_link` (not the generic `base_link`) so this
+demo can run alongside robot_demo.py — both share the `odom` root, so both render
+together, but their body frames no longer collide in the shared TF tree.
 
 Dependency-free: POSTs JSON to the hub's /api/inject endpoint (§6.4), like the
 default mode of demo_source.py. Run the hub, then:
 
     python3 sdks/python/map_sim_demo.py
     # then open the app, add a Map tab, and select map / scan / plan=trail,
-    # robot frame = base_link, fixed frame = odom.
+    # robot frame = mobile_base_link, fixed frame = odom.
 
 Reproduce a particular map with --seed; tune with --width/--height/--obstacles.
 """
@@ -128,7 +132,7 @@ class MapSim:
         step = self.res * 0.5
         ranges: list[float | str] = []
         for k in range(n):
-            ang = self.yaw + amin + k * inc  # beam is in base_link; add robot yaw
+            ang = self.yaw + amin + k * inc  # beam is in the body frame; add robot yaw
             ca, sa = math.cos(ang), math.sin(ang)
             d = self.res
             hit: float | None = None
@@ -142,7 +146,7 @@ class MapSim:
                 d += step
             ranges.append(round(hit, 3) if hit is not None else "Inf")
         return {
-            "frame_id": "base_link",
+            "frame_id": "mobile_base_link",
             "angle_min": amin,
             "angle_max": amax,
             "angle_increment": inc,
@@ -163,7 +167,7 @@ class MapSim:
 
     def transform(self) -> dict:
         return {
-            "frame_id": "base_link",
+            "frame_id": "mobile_base_link",
             "parent_frame_id": "odom",
             "translation": [self.x, self.y, 0.0],
             "rotation": quat_from_yaw(self.yaw),

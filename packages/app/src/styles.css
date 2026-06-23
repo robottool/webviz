@@ -189,6 +189,203 @@ button:disabled {
   overflow: hidden;
 }
 
+/* --- Split view (recursive binary tree of panes) --- */
+.split-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg);
+}
+.split-branch {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.split-child {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.split-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.split-pane-focused {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.split-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 6px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.split-pane-select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 1px 4px;
+  max-width: 200px;
+}
+.split-pane-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.split-pane-btn:first-of-type {
+  margin-left: auto;
+}
+.split-pane-btn:hover {
+  color: var(--text);
+  background: var(--bg-3);
+}
+.split-pane-close {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.split-pane-close:hover {
+  color: var(--red);
+  background: var(--bg-3);
+}
+.split-pane-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.split-pane-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.split-divider {
+  flex: 0 0 6px;
+  background: var(--border);
+  z-index: 1;
+}
+.split-divider-col {
+  cursor: col-resize;
+}
+.split-divider-row {
+  cursor: row-resize;
+}
+.split-divider:hover {
+  background: var(--accent);
+}
+.split-picker {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.split-preset {
+  background: var(--bg-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 26px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.split-preset:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* --- Playback bar --- */
+.playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--bg-3);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+}
+.pb-play {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 30px;
+  height: 22px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.pb-play:hover {
+  border-color: var(--accent);
+}
+.pb-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  min-width: 36px;
+  text-align: center;
+}
+.pb-scrubber {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pb-speed {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.pb-file {
+  color: var(--text-dim);
+  font-size: 11px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-close {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pb-close:hover {
+  color: var(--text);
+}
+
 /* --- Status bar --- */
 .statusbar {
   display: flex;
@@ -856,6 +1053,42 @@ button:disabled {
 
 .layout-menu {
   min-width: 230px;
+}
+.settings-menu {
+  min-width: 260px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.settings-row-col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.settings-row input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.settings-row input[type='number'] {
+  width: 70px;
+  text-align: right;
+}
+.settings-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.settings-note {
+  padding: 2px 8px 6px;
+  font-size: 11px;
 }
 .layout-sep {
   height: 1px;

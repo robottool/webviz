@@ -1,10 +1,12 @@
 /** Top bar (§11.1): brand, connection field + status, action icons. */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
+import { useSettingsStore } from '../store/settings.store.js';
 import { recorder } from '../core/recorder.js';
+import { player } from '../core/player.js';
 import {
   deleteLayout,
   listLayouts,
@@ -46,10 +48,141 @@ export function TopBar() {
       <span className="status-text">{STATUS_LABEL[status] ?? status}</span>
       <span className="source-count">● {sources} sources</span>
       <div className="spacer" />
-      <span className="icon-btn" title="Settings (not yet implemented)">⚙</span>
+      <SettingsMenu />
       <LayoutMenu />
+      <LoadRecordingButton />
       <RecordButton />
     </div>
+  );
+}
+
+/** ⚙ — global settings popover (sync window, recording cap, default hub URL). */
+function SettingsMenu() {
+  const btnRef = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const { syncWindowMs, recordingCapMB, hubUrl, set, reset } =
+    useSettingsStore();
+
+  const open = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setPos({ top: r.bottom + 6, left: Math.max(8, r.right - 260) });
+  };
+  const close = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+    };
+  }, [pos]);
+
+  return (
+    <>
+      <span
+        ref={btnRef}
+        className="icon-btn"
+        title="Settings"
+        onClick={() => (pos ? close() : open())}
+      >
+        ⚙
+      </span>
+      {pos &&
+        createPortal(
+          <>
+            <div className="tab-add-backdrop" onClick={close} />
+            <div
+              className="tab-add-menu settings-menu"
+              style={{ top: pos.top, left: pos.left }}
+            >
+              <label className="settings-row">
+                <span>Sync window (ms)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={syncWindowMs}
+                  onChange={(e) =>
+                    set({ syncWindowMs: Math.max(0, Number(e.target.value) || 0) })
+                  }
+                />
+              </label>
+              <label className="settings-row">
+                <span>Recording cap (MB)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={4096}
+                  value={recordingCapMB}
+                  onChange={(e) =>
+                    set({
+                      recordingCapMB: Math.max(1, Number(e.target.value) || 1),
+                    })
+                  }
+                />
+              </label>
+              <label className="settings-row settings-row-col">
+                <span>Default hub URL</span>
+                <input
+                  type="text"
+                  placeholder="auto (from page host)"
+                  value={hubUrl}
+                  spellCheck={false}
+                  onChange={(e) => set({ hubUrl: e.target.value })}
+                />
+              </label>
+              <div className="settings-note muted">
+                Hub URL applies on reload or next Connect.
+              </div>
+              <div className="layout-sep" />
+              <div className="tab-add-item" onClick={reset}>
+                ↺ Reset to defaults
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/** 📂 — load a `.wvrec` and start replaying it (as a coexisting hub source). */
+function LoadRecordingButton() {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    try {
+      await player.load(file);
+      player.play();
+    } catch (err) {
+      window.alert(`Could not load recording: ${(err as Error).message}`);
+    }
+  };
+
+  return (
+    <>
+      <span
+        className="icon-btn"
+        title="Load recording (.wvrec)"
+        onClick={() => inputRef.current?.click()}
+      >
+        📂
+      </span>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".wvrec"
+        style={{ display: 'none' }}
+        onChange={onPick}
+      />
+    </>
   );
 }
 
@@ -64,29 +197,43 @@ function fmtBytes(b: number): string {
 }
 
 function RecordButton() {
+  const channels = useConnectionStore((s) => s.channels);
   const [active, setActive] = useState(recorder.isActive());
   const [stats, setStats] = useState(recorder.stats());
 
+  const finalize = useCallback(() => {
+    const blob = recorder.stop();
+    setActive(false);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `webviz-${new Date().toISOString().replace(/[:.]/g, '-')}.wvrec`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => setStats(recorder.stats()), 250);
+    const id = setInterval(() => {
+      setStats(recorder.stats());
+      // Auto-stop & download once the recording hits its size/frame cap.
+      if (recorder.isLimitReached()) {
+        finalize();
+        window.alert(
+          `Recording stopped: reached the size limit (${recorder.getCapMB()} MB).`,
+        );
+      }
+    }, 250);
     return () => clearInterval(id);
-  }, [active]);
+  }, [active, finalize]);
 
   const toggle = () => {
     if (recorder.isActive()) {
-      const blob = recorder.stop();
-      setActive(false);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `webviz-${new Date().toISOString().replace(/[:.]/g, '-')}.wvrec`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      finalize();
     } else {
-      recorder.start();
+      recorder.start(channels);
       setStats(recorder.stats());
       setActive(true);
     }

@@ -12,20 +12,26 @@
  * shouldn't yank your live hub connection).
  */
 
-import { useTabStore, type TabConfig } from './tabs.store.js';
+import {
+  useTabStore,
+  sanitizeSplit,
+  type TabConfig,
+  type SplitState,
+} from './tabs.store.js';
 import { useConnectionStore } from './connection.store.js';
 
 export interface WorkspaceConfig {
   version: string;
   tabs: TabConfig[];
   activeTabId: string;
+  split?: SplitState;
   connection?: { url: string };
 }
 
 export function serializeWorkspace(): WorkspaceConfig {
-  const { tabs, activeTabId } = useTabStore.getState();
+  const { tabs, activeTabId, split } = useTabStore.getState();
   const { url } = useConnectionStore.getState();
-  return { version: '1', tabs, activeTabId, connection: { url } };
+  return { version: '1', tabs, activeTabId, split, connection: { url } };
 }
 
 /** Replace the live workspace with a saved one. Returns false if it's empty. */
@@ -34,7 +40,9 @@ export function applyWorkspace(cfg: WorkspaceConfig | null | undefined): boolean
   const activeTabId = cfg.tabs.some((t) => t.id === cfg.activeTabId)
     ? cfg.activeTabId
     : cfg.tabs[0].id;
-  useTabStore.setState({ tabs: cfg.tabs, activeTabId });
+  // Old layouts predate split → sanitizeSplit defaults them to single mode.
+  const split = sanitizeSplit(cfg.split, cfg.tabs, activeTabId);
+  useTabStore.setState({ tabs: cfg.tabs, activeTabId, split });
   return true;
 }
 

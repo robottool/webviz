@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import type { ChannelInfo } from '@webviz/protocol';
 import { hubClient, type ConnectionStatus } from '../protocol/HubClient.js';
+import { persistedHubUrl } from './settings.store.js';
 
 interface ConnectionState {
   status: ConnectionStatus;
@@ -29,9 +30,12 @@ const DEFAULT_URL =
   (import.meta.env.VITE_HUB_URL as string | undefined) ??
   `ws://${hubHost}:7777?role=client`;
 
+// A persisted hub URL (⚙ settings) wins over the auto-derived default.
+const INITIAL_URL = persistedHubUrl() || DEFAULT_URL;
+
 export const useConnectionStore = create<ConnectionState>((set) => ({
   status: 'disconnected',
-  url: DEFAULT_URL,
+  url: INITIAL_URL,
   channels: [],
   connect: (url: string) => {
     set({ url });

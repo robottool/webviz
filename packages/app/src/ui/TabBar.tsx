@@ -71,6 +71,9 @@ export function TabBar() {
         +
       </button>
 
+      <div className="spacer" />
+      <SplitPicker />
+
       {menuPos &&
         createPortal(
           <>
@@ -96,6 +99,31 @@ export function TabBar() {
           </>,
           document.body,
         )}
+    </div>
+  );
+}
+
+/** Split the focused pane (right-aligned in the tab bar). Works in single mode
+ *  too — the sole pane is always focused. */
+function SplitPicker() {
+  const focusedLeaf = useTabStore((s) => s.split.focusedLeaf);
+  const splitPane = useTabStore((s) => s.splitPane);
+  return (
+    <div className="split-picker">
+      <button
+        className="split-preset"
+        title="Split left / right"
+        onClick={() => splitPane(focusedLeaf, 'row')}
+      >
+        ◫
+      </button>
+      <button
+        className="split-preset"
+        title="Split top / bottom"
+        onClick={() => splitPane(focusedLeaf, 'col')}
+      >
+        ⊟
+      </button>
     </div>
   );
 }
