@@ -16,6 +16,8 @@ import {
   type Unadvertise,
 } from '@webviz/protocol';
 import { MessageRouter, type MessageHandler } from './MessageRouter.js';
+import { TimeManager } from '../core/TimeManager.js';
+import { recorder } from '../core/recorder.js';
 
 export type ConnectionStatus =
   | 'connecting'
@@ -48,6 +50,8 @@ export class HubClient {
   private channels = new Map<number, ChannelInfo>();
   private nameToId = new Map<string, number>();
   readonly router = new MessageRouter();
+  /** Sync-window buffer (§8): frames flush to the router in timestamp order. */
+  readonly time = new TimeManager((m) => this.router.dispatch(m));
 
   /**
    * Active subscriptions, keyed by channel *name* (the stable identity across
@@ -214,10 +218,11 @@ export class HubClient {
   }
 
   private onMessage(raw: string | ArrayBuffer): void {
+    recorder.capture(raw); // byte-faithful tap before decode (no-op when idle)
     const decoded = decodeFrame(raw);
     if (decoded.kind === 'data') {
       const info = this.channels.get(decoded.channelId);
-      this.router.dispatch({
+      this.time.enqueue({
         channelId: decoded.channelId,
         channelName: info?.name ?? String(decoded.channelId),
         timestamp: decoded.timestamp,

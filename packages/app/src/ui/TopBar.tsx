@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
+import { recorder } from '../core/recorder.js';
 import {
   deleteLayout,
   listLayouts,
@@ -47,8 +48,66 @@ export function TopBar() {
       <div className="spacer" />
       <span className="icon-btn" title="Settings (not yet implemented)">⚙</span>
       <LayoutMenu />
-      <span className="icon-btn" title="Record (not yet implemented)">⏺</span>
+      <RecordButton />
     </div>
+  );
+}
+
+function fmtDur(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function RecordButton() {
+  const [active, setActive] = useState(recorder.isActive());
+  const [stats, setStats] = useState(recorder.stats());
+
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setStats(recorder.stats()), 250);
+    return () => clearInterval(id);
+  }, [active]);
+
+  const toggle = () => {
+    if (recorder.isActive()) {
+      const blob = recorder.stop();
+      setActive(false);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `webviz-${new Date().toISOString().replace(/[:.]/g, '-')}.wvrec`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      recorder.start();
+      setStats(recorder.stats());
+      setActive(true);
+    }
+  };
+
+  if (!active) {
+    return (
+      <span className="icon-btn" title="Record session" onClick={toggle}>
+        ⏺
+      </span>
+    );
+  }
+  return (
+    <span
+      className="rec-indicator"
+      title="Stop & download recording"
+      onClick={toggle}
+    >
+      <span className="rec-dot" />
+      REC {fmtDur(stats.elapsedMs)} · {stats.frames} · {fmtBytes(stats.bytes)}
+    </span>
   );
 }
 

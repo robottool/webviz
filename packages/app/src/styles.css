@@ -829,6 +829,31 @@ button:disabled {
   min-width: 0;
 }
 
+.rec-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
 .layout-menu {
   min-width: 230px;
 }
