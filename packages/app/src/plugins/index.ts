@@ -13,6 +13,7 @@ import { laserScanFactory } from './LaserScanPlugin.js';
 import { occupancyGridFactory } from './OccupancyGridPlugin.js';
 import { pathFactory } from './PathPlugin.js';
 import { poseFactory } from './PosePlugin.js';
+import { coordinateFrameFactory } from './CoordinateFramePlugin.js';
 
 pluginRegistry.register('RobotModel', 'Robot Model', robotModelFactory);
 pluginRegistry.register('TFFrames', 'TF', tfFramesFactory);
@@ -22,5 +23,6 @@ pluginRegistry.register('LaserScan', 'Laser Scan', laserScanFactory);
 pluginRegistry.register('OccupancyGrid', 'Occupancy Grid', occupancyGridFactory);
 pluginRegistry.register('Path', 'Path', pathFactory);
 pluginRegistry.register('Pose', 'Pose', poseFactory);
+pluginRegistry.register('CoordinateFrame', 'Coordinate Frame', coordinateFrameFactory);
 
 export { pluginRegistry };
