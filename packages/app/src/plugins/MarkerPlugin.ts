@@ -5,14 +5,16 @@
  * and per-marker `lifetime` expiry. Each marker is anchored to its `frame_id`
  * via the shared TF tree every render, like the other 3D plugins.
  *
- * First-cut geometry coverage: cube, sphere, cylinder, arrow, line_strip,
- * line_list, points, triangle_list. `text` (needs a CSS2D renderer) and `mesh`
- * (needs the URDF mesh loaders) are deferred — those markers are ignored.
+ * Geometry coverage: cube, sphere, cylinder, arrow, line_strip, line_list,
+ * points, triangle_list, and `mesh` (loaded asynchronously from the hub asset
+ * server via the shared mesh loader). `text` (needs a CSS2D renderer) is still
+ * deferred — those markers are ignored.
  */
 
 import * as THREE from 'three';
 import type { ColorRGBA, Marker } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
+import { extOf, loadMeshFromUrl, resolveAssetUrl } from '../core/meshLoad.js';
 
 interface Settings {
   channel: string;
@@ -25,6 +27,17 @@ interface MarkerEntry {
   frameId: string;
   /** Monotonic seconds at which to auto-remove, or null for no lifetime. */
   expiresAt: number | null;
+  // --- mesh markers only (loaded asynchronously) ---
+  /** The mesh ref currently loaded or loading; lets a re-published mesh marker
+   * update in place (pose/scale/color) instead of refetching every frame. */
+  meshUrl?: string;
+  /** The loaded inner object once the async load resolves. */
+  meshObj?: THREE.Object3D;
+  /** The mesh's intrinsic scale at load time, so marker `scale` multiplies it
+   * without compounding across updates. */
+  baseScale?: THREE.Vector3;
+  /** Signature of the last color applied, to skip re-tinting unchanged colors. */
+  colorKey?: string;
 }
 
 const nowSec = () => performance.now() / 1000;
@@ -108,25 +121,71 @@ export class MarkerPlugin implements DisplayPlugin {
 
   private upsert(m: Marker): void {
     const key = this.keyOf(m);
+
+    if (m.type === 'mesh') {
+      this.upsertMesh(m, key);
+      return;
+    }
+
     this.remove(key); // replace any existing marker with this identity
     const obj = buildMarker(m);
-    if (!obj) return; // unsupported/empty (text, mesh, or no points)
-    obj.position.set(m.pose.position[0], m.pose.position[1], m.pose.position[2]);
-    obj.quaternion.set(
-      m.pose.orientation[0],
-      m.pose.orientation[1],
-      m.pose.orientation[2],
-      m.pose.orientation[3],
-    );
+    if (!obj) return; // unsupported/empty (text, or no points)
+    setLocalPose(obj, m);
     const group = new THREE.Group();
     group.add(obj);
     this.root.add(group);
-    const hasLifetime = typeof m.lifetime === 'number' && m.lifetime > 0;
-    this.markers.set(key, {
-      group,
-      frameId: m.frame_id,
-      expiresAt: hasLifetime ? nowSec() + m.lifetime! : null,
-    });
+    this.markers.set(key, this.makeEntry(m, group));
+  }
+
+  /**
+   * Mesh markers load asynchronously. A re-published marker with the **same**
+   * `mesh_url` updates the existing mesh in place (pose/scale/color) — no
+   * refetch, so a 20 Hz stream doesn't reload the resource every frame. Only a
+   * new key or a changed mesh ref triggers a load: the (empty) group + entry are
+   * created synchronously so the lifecycle tracks the identity immediately, and
+   * the loaded object is attached only if this exact entry is still live for the
+   * key (else it was replaced/deleted mid-load, so the load is discarded).
+   */
+  private upsertMesh(m: Marker, key: string): void {
+    const ref = m.mesh_url ?? '';
+    const existing = this.markers.get(key);
+    if (existing && existing.meshUrl === ref) {
+      // Same mesh — update transform/appearance in place, no refetch.
+      existing.frameId = m.frame_id;
+      existing.expiresAt = lifetimeOf(m);
+      if (existing.meshObj) applyMeshUpdate(existing, m);
+      return;
+    }
+
+    this.remove(key);
+    const group = new THREE.Group();
+    this.root.add(group);
+    const entry = this.makeEntry(m, group);
+    entry.meshUrl = ref;
+    this.markers.set(key, entry);
+
+    const fmt = (m.mesh_format || extOf(ref)).toLowerCase();
+    if (!ref || !fmt) return; // nothing to load; empty group is harmless
+
+    loadMeshFromUrl(resolveAssetUrl(ref), fmt)
+      .then((obj) => {
+        if (this.markers.get(key) !== entry) {
+          disposeTree(obj); // replaced/deleted while loading
+          return;
+        }
+        entry.meshObj = obj;
+        entry.baseScale = obj.scale.clone();
+        applyMeshUpdate(entry, m);
+        group.add(obj);
+        this.ctx.scene.requestRender();
+      })
+      .catch((err) => {
+        console.warn(`[Marker] mesh load failed for ${key}: ${ref}`, err);
+      });
+  }
+
+  private makeEntry(m: Marker, group: THREE.Group): MarkerEntry {
+    return { group, frameId: m.frame_id, expiresAt: lifetimeOf(m) };
   }
 
   private remove(key: string): void {
@@ -204,8 +263,9 @@ export class MarkerPlugin implements DisplayPlugin {
 
 // --- geometry builders ---
 
-/** Build the three.js object for a marker, or null if its type is unsupported
- * (text/mesh) or it carries no drawable data. */
+/** Build the three.js object for a (synchronous) marker, or null if its type is
+ * unsupported (text) or it carries no drawable data. `mesh` markers load
+ * asynchronously and are handled in `upsertMesh`, not here. */
 function buildMarker(m: Marker): THREE.Object3D | null {
   switch (m.type) {
     case 'cube': {
@@ -239,8 +299,59 @@ function buildMarker(m: Marker): THREE.Object3D | null {
     case 'text':
     case 'mesh':
     default:
-      return null; // deferred
+      return null; // text deferred; mesh handled async in upsertMesh
   }
+}
+
+/** Set an object's local pose from the marker's own (frame-local) pose. */
+function setLocalPose(obj: THREE.Object3D, m: Marker): void {
+  obj.position.set(m.pose.position[0], m.pose.position[1], m.pose.position[2]);
+  obj.quaternion.set(
+    m.pose.orientation[0],
+    m.pose.orientation[1],
+    m.pose.orientation[2],
+    m.pose.orientation[3],
+  );
+}
+
+/** Monotonic expiry time from a marker's lifetime, or null for no lifetime. */
+function lifetimeOf(m: Marker): number | null {
+  const hasLifetime = typeof m.lifetime === 'number' && m.lifetime > 0;
+  return hasLifetime ? nowSec() + m.lifetime! : null;
+}
+
+/**
+ * Apply a mesh marker's pose, scale, and color to its loaded object in place.
+ * `scale` is a multiplier on the mesh's intrinsic size (`entry.baseScale`,
+ * captured at load) so repeated updates don't compound; 0/undefined is treated
+ * as 1 (matching RViz, where a zero scale means "as authored"). A non-zero
+ * `color` tints the whole mesh; an all-zero color keeps the mesh's embedded
+ * materials. Color is only re-applied when it actually changes (`colorKey`),
+ * so a high-rate stream of pose updates doesn't churn materials.
+ */
+function applyMeshUpdate(entry: MarkerEntry, m: Marker): void {
+  const obj = entry.meshObj!;
+  setLocalPose(obj, m);
+  const b = entry.baseScale ?? new THREE.Vector3(1, 1, 1);
+  obj.scale.set(b.x * (m.scale[0] || 1), b.y * (m.scale[1] || 1), b.z * (m.scale[2] || 1));
+
+  const key = colorKeyOf(m.color);
+  if (key === entry.colorKey) return;
+  entry.colorKey = key;
+  if (isZeroColor(m.color)) return; // keep embedded materials
+  const mat = meshMaterial(m.color);
+  obj.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (mesh.isMesh) mesh.material = mat;
+  });
+}
+
+function isZeroColor(c: ColorRGBA): boolean {
+  return c[0] === 0 && c[1] === 0 && c[2] === 0 && c[3] === 0;
+}
+
+function colorKeyOf(c: ColorRGBA): string {
+  return `${c[0]},${c[1]},${c[2]},${c[3]}`;
 }
 
 /** Arrow along +X (RViz convention): a cylinder shaft capped by a cone head. */

@@ -2,9 +2,10 @@
 """WebViz demo data source.
 
 Publishes a spread of channels so the browser app has live data to display: a
-moving robot transform, an orbiting marker, battery telemetry, and one of each
-of the remaining 3D schemas — LaserScan, OccupancyGrid, Path, and Pose (all
-JSON, so they flow through the dependency-free HTTP path).
+moving robot transform, an orbiting marker, a mesh marker (a UR10 link loaded
+from the hub asset server), battery telemetry, and one of each of the remaining
+3D schemas — LaserScan, OccupancyGrid, Path, and Pose (all JSON, so they flow
+through the dependency-free HTTP path).
 
 Two modes:
 
@@ -140,6 +141,25 @@ def frames(t: float) -> list[tuple[str, str, dict]]:
         "color": [0.2, 0.9, 0.5, 0.9],
     }
 
+    # Mesh marker: a UR10 base link loaded from the hub asset server. The DAE
+    # carries its own materials, so an all-zero color keeps them as authored
+    # (a non-zero color would tint the whole mesh instead).
+    mesh_marker = {
+        "id": "ur10_base",
+        "namespace": "demo",
+        "action": "add",
+        "type": "mesh",
+        "frame_id": "odom",
+        "pose": {
+            "position": [-2.0, 0.0, 0.0],
+            "orientation": quat_from_yaw(t * 0.5),
+        },
+        "scale": [1.0, 1.0, 1.0],
+        "color": [0.0, 0.0, 0.0, 0.0],
+        "mesh_url": "package://ur_description/meshes/ur10/visual/base.dae",
+        "mesh_format": "dae",
+    }
+
     battery = {
         "voltage": round(48.0 + math.sin(t) * 0.5, 3),
         "percent": round(50 + 50 * math.sin(t / 5), 1),
@@ -149,6 +169,7 @@ def frames(t: float) -> list[tuple[str, str, dict]]:
     return [
         ("transforms", "wv/Transform", transform),
         ("markers", "wv/Marker", marker),
+        ("mesh_markers", "wv/Marker", mesh_marker),
         ("battery", "wv/Custom", battery),
         ("scan", "wv/LaserScan", laser_scan(t)),
         ("map", "wv/OccupancyGrid", occupancy_grid(t)),

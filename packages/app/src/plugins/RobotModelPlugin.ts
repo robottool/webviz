@@ -17,14 +17,12 @@
  */
 
 import * as THREE from 'three';
-import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 import type { JointState, RobotModel } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
 import { LocalAssetResolver } from '../core/meshResolver.js';
+import { basename, defaultAssetBase, extOf, loadMeshFromUrl } from '../core/meshLoad.js';
 
 export type Source = 'channel' | 'manual';
 export type UrdfSource = 'channel' | 'local';
@@ -63,12 +61,6 @@ interface Settings {
   manual_pose: ManualPose;
 }
 
-function defaultAssetBase(): string {
-  const host =
-    typeof location !== 'undefined' && location.hostname ? location.hostname : 'localhost';
-  return `http://${host}:8080/assets`;
-}
-
 function emptyReport(): ValidationReport {
   return {
     loaded: false,
@@ -79,14 +71,6 @@ function emptyReport(): ValidationReport {
     meshFailed: [],
     error: null,
   };
-}
-
-function basename(p: string): string {
-  return p.split(/[?#]/)[0].split(/[\\/]/).pop() ?? p;
-}
-
-function extOf(p: string): string {
-  return basename(p).split('.').pop()?.toLowerCase() ?? '';
 }
 
 export class RobotModelPlugin implements DisplayPlugin {
@@ -312,24 +296,10 @@ export class RobotModelPlugin implements DisplayPlugin {
     material: THREE.Material | undefined,
     resolver?: LocalAssetResolver,
   ): Promise<THREE.Object3D> {
-    const ext = extOf(path);
-    const manager = resolver?.manager;
     // Local: pass the raw path; the manager's URL modifier maps it (and any
     // sub-resources) to blob URLs. Remote: rewrite onto the hub asset server.
     const url = resolver ? path : this.resolveMeshUrl(path);
-    if (ext === 'dae') {
-      const dae = await new ColladaLoader(manager).loadAsync(url);
-      return dae.scene;
-    }
-    if (ext === 'stl') {
-      const geom = await new STLLoader(manager).loadAsync(url);
-      return new THREE.Mesh(geom, material ?? new THREE.MeshPhongMaterial({ color: 0x9aa4b2 }));
-    }
-    if (ext === 'glb' || ext === 'gltf') {
-      const gltf = await new GLTFLoader(manager).loadAsync(url);
-      return gltf.scene;
-    }
-    throw new Error(`Unsupported mesh format: ${ext} (${path})`);
+    return loadMeshFromUrl(url, extOf(path), material, resolver?.manager);
   }
 
   private resolveMeshUrl(path: string): string {
