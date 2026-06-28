@@ -25,6 +25,7 @@ import type { URDFRobot } from 'urdf-loader';
 import type { JointState, RobotModel } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
 import { LocalAssetResolver } from '../core/meshResolver.js';
+import { parseGroupStates, type GroupState } from '../core/srdf.js';
 
 export type Source = 'channel' | 'manual';
 export type UrdfSource = 'channel' | 'local';
@@ -61,6 +62,8 @@ interface Settings {
   opacity: number;
   manual_joints: Record<string, number>;
   manual_pose: ManualPose;
+  /** Name of the last-applied SRDF group state (just for UI selection memory). */
+  pose_preset: string;
 }
 
 function defaultAssetBase(): string {
@@ -110,6 +113,11 @@ export class RobotModelPlugin implements DisplayPlugin {
   private jointsDirty = false;
   private manualDirty = false;
 
+  /** SRDF group states (named pose presets), parsed alongside the URDF. */
+  private groupStates: GroupState[] = [];
+  /** Dedupe key (url or xml) so a re-advertised model doesn't re-parse SRDF. */
+  private srdfKey = '';
+
   private unsubModel: (() => void) | null = null;
   private unsubJoints: (() => void) | null = null;
   private unsubChannelList: (() => void) | null = null;
@@ -131,6 +139,7 @@ export class RobotModelPlugin implements DisplayPlugin {
       opacity: 1,
       manual_joints: {},
       manual_pose: { xyz: [0, 0, 0], rpy: [0, 0, 0] },
+      pose_preset: '',
       ...(initial as Partial<Settings> | undefined),
     };
   }
@@ -235,13 +244,35 @@ export class RobotModelPlugin implements DisplayPlugin {
     const text = await urdfFile.text();
     this.localResolver?.dispose();
     this.localResolver = new LocalAssetResolver(this.localFiles);
+    // Pick up an SRDF companion from the same folder, if present.
+    await this.ingestLocalSrdf();
     await this.loadRobot(
       () => this.buildLoader(this.localResolver ?? undefined).parse(text) as URDFRobot,
       `local:${urdfFile.webkitRelativePath || urdfFile.name}:${this.localFiles.length}`,
     );
   }
 
+  private async ingestLocalSrdf(): Promise<void> {
+    const srdfFile = this.localFiles.find(
+      (f) => /\.srdf$/i.test(f.name) || /\.srdf$/i.test(f.webkitRelativePath),
+    );
+    this.srdfKey = srdfFile ? `local:${srdfFile.webkitRelativePath || srdfFile.name}` : '';
+    if (!srdfFile) {
+      this.setGroupStates([]);
+      return;
+    }
+    try {
+      this.setGroupStates(parseGroupStates(await srdfFile.text()));
+    } catch (err) {
+      console.error('[RobotModel] local SRDF parse failed', err);
+      this.setGroupStates([]);
+    }
+  }
+
   private async loadFromChannel(model: RobotModel): Promise<void> {
+    // SRDF rides in the same message and can change independently of the URDF
+    // (or arrive on a re-advertise after the URDF is cached), so ingest it first.
+    void this.ingestSrdf(model);
     const url = model.urdf_url ?? '';
     if (!url || `url:${url}` === this.loadedKey) return;
     await this.loadRobot(
@@ -251,6 +282,44 @@ export class RobotModelPlugin implements DisplayPlugin {
         }),
       `url:${url}`,
     );
+  }
+
+  /** Parse the model's SRDF (inline xml or a url to fetch) into group states. */
+  private async ingestSrdf(model: RobotModel): Promise<void> {
+    const key = model.srdf_xml ? `xml:${model.srdf_xml}` : model.srdf_url ? `url:${model.srdf_url}` : '';
+    if (key === this.srdfKey) return; // unchanged since last ingest
+    this.srdfKey = key;
+    if (!key) {
+      this.setGroupStates([]);
+      return;
+    }
+    try {
+      let xml: string;
+      if (model.srdf_xml) {
+        xml = model.srdf_xml;
+      } else {
+        const res = await fetch(this.resolveSrdfUrl(model.srdf_url!));
+        xml = await res.text();
+      }
+      this.setGroupStates(parseGroupStates(xml));
+    } catch (err) {
+      console.error('[RobotModel] SRDF load failed', err);
+      this.setGroupStates([]);
+    }
+  }
+
+  private resolveSrdfUrl(url: string): string {
+    if (/^https?:\/\//.test(url)) return url;
+    return `${this.assetBase}/${url.replace(/^package:\/\//, '')}`;
+  }
+
+  private setGroupStates(states: GroupState[]): void {
+    this.groupStates = states;
+    // Drop a remembered preset that no longer exists in the new SRDF.
+    if (this.settings.pose_preset && !states.some((g) => g.name === this.settings.pose_preset)) {
+      this.settings.pose_preset = '';
+    }
+    this.emitChange();
   }
 
   private async loadRobot(produce: () => URDFRobot | Promise<URDFRobot>, key: string): Promise<void> {
@@ -464,6 +533,29 @@ export class RobotModelPlugin implements DisplayPlugin {
   setManualPose(patch: Partial<ManualPose>): void {
     this.settings.manual_pose = { ...this.settings.manual_pose, ...patch };
     this.ctx.scene.requestRender();
+  }
+
+  /** SRDF group states (named pose presets) available for the loaded robot. */
+  getGroupStates(): GroupState[] {
+    return this.groupStates;
+  }
+
+  /**
+   * Snap the robot to a named SRDF group state. A preset is a *preview* action,
+   * so it writes the manual joint values and forces joint source to manual
+   * (mirrors loading a local folder). Joints the state omits keep their value.
+   */
+  applyGroupState(name: string): void {
+    const state = this.groupStates.find((g) => g.name === name);
+    if (!state) return;
+    this.settings.pose_preset = name;
+    this.settings.joint_source = 'manual';
+    for (const [jn, v] of Object.entries(state.joints)) {
+      this.settings.manual_joints[jn] = v;
+    }
+    this.manualDirty = true;
+    this.ctx.scene.requestRender();
+    this.emitChange();
   }
 
   // --- DisplayPlugin contract ---
