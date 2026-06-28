@@ -19,8 +19,16 @@ tabs and the full display-plugin catalogue now live:
 
 ## Quick start
 
-The fastest path is the one-shot launcher, which builds the protocol package and runs the
-hub + app together (Ctrl+C tears both down):
+First-time setup on Linux — installs the toolchain (Node ≥ 20 via nvm if missing, pnpm,
+JS deps, builds the protocol package) and a Python venv with `websockets` for the demos.
+It's idempotent, so re-running only fills in what's missing:
+
+```bash
+./setup.sh
+```
+
+Then the fastest path is the one-shot launcher, which builds the protocol package and runs
+the hub + app together (Ctrl+C tears both down):
 
 ```bash
 ./dev.sh        # opens http://localhost:5173 (see its header comments for VM / remote access)
@@ -45,11 +53,11 @@ pnpm app        # opens http://localhost:5173
 Then feed it demo data (each in its own terminal):
 
 ```bash
-python3 sdks/python/demo_source.py     # transforms / markers / nav / log (no pip deps)
-python3 sdks/python/map_sim_demo.py    # SLAM-style map + wandering robot for the Map tab (no pip deps)
-python3 sdks/python/robot_demo.py      # animated UR5 arm for the 3D tab
-python3 sdks/python/pointcloud_demo.py # animated binary PointCloud for the 3D tab
-python3 sdks/python/image_demo.py      # animated RGB8 Image for the Image tab
+python3 sdks/python/demo_source.py             # transforms / markers / nav / log (no pip deps)
+python3 sdks/python/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
+venv/bin/python3 sdks/python/robot_demo.py     # animated UR5 arm for the 3D tab (needs websockets)
+venv/bin/python3 sdks/python/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
+venv/bin/python3 sdks/python/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)
 ```
 
 Open the app, it auto-connects to `ws://localhost:7777`.
