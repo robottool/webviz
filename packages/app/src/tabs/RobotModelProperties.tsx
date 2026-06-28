@@ -1,7 +1,9 @@
 /**
- * Custom Properties panel for the RobotModel plugin: a URDF loader (local folder
- * picker), a validation summary, per-joint sliders driven by URDF limits, and a
- * base-pose input — each of joints/pose switchable between manual preview and
+ * Custom Properties panel for the RobotModel plugin. The "Load URDF…" button
+ * opens a dialog offering three sources — a local folder, a URL (GitHub/raw
+ * .urdf, meshes fetched from the same repo), or the bundled demo robot — then
+ * shows a validation summary, per-joint sliders driven by URDF limits, and a
+ * base-pose input, each of joints/pose switchable between manual preview and
  * the live channel. Replaces the generic schema form for RobotModel displays.
  */
 
@@ -39,7 +41,10 @@ export function RobotModelProperties({
 }) {
   const [, force] = useReducer((n: number) => n + 1, 0);
   const [showMissing, setShowMissing] = useState(false);
+  const [showLoad, setShowLoad] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [urlBusy, setUrlBusy] = useState(false);
   const folderRef = useRef<HTMLInputElement>(null);
   const meshFolderRef = useRef<HTMLInputElement>(null);
 
@@ -75,12 +80,19 @@ export function RobotModelProperties({
   const channelsOf = (schema: string) =>
     hubClient.getChannels().filter((c) => c.schema === schema).map((c) => c.name);
 
+  // Close the load dialog once a model is actually loaded; on failure keep it
+  // open so the error (from the report) stays visible.
+  const closeIfLoaded = () => {
+    if (plugin.getReport().loaded) setShowLoad(false);
+  };
+
   const onPickFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length) {
       await plugin.loadFromFiles(files);
       onChange();
       force();
+      closeIfLoaded();
     }
     e.target.value = '';
   };
@@ -98,10 +110,26 @@ export function RobotModelProperties({
       await plugin.loadFromManifest(base, manifest.files);
       onChange();
       force();
+      closeIfLoaded();
     } catch (err) {
       console.error('[RobotModel] demo robot load failed', err);
     } finally {
       setDemoLoading(false);
+    }
+  };
+
+  // Load a URDF (+ its meshes) from a URL — e.g. a GitHub blob/raw link.
+  const onLoadUrl = async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+    setUrlBusy(true);
+    try {
+      await plugin.loadFromUrdfUrl(url);
+      onChange();
+      force();
+      closeIfLoaded();
+    } finally {
+      setUrlBusy(false);
     }
   };
 
@@ -138,20 +166,10 @@ export function RobotModelProperties({
           />
           <button
             style={{ width: '100%', marginTop: 6 }}
-            onClick={() => folderRef.current?.click()}
+            onClick={() => setShowLoad(true)}
           >
-            Load URDF folder…
+            Load URDF…
           </button>
-          {!report.loaded && (
-            <button
-              className="btn-link"
-              style={{ width: '100%', marginTop: 4 }}
-              onClick={onLoadDemo}
-              disabled={demoLoading}
-            >
-              {demoLoading ? 'Loading demo…' : 'or load demo robot'}
-            </button>
-          )}
         </>
       ) : (
         <label className="props-row">
@@ -214,6 +232,83 @@ export function RobotModelProperties({
                 >
                   Select mesh folder…
                 </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {showLoad &&
+        createPortal(
+          <div className="modal-backdrop" onClick={() => setShowLoad(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">Load robot model</div>
+              <div className="modal-body">
+                {/* From files */}
+                <div className="props-section">From files</div>
+                <p>
+                  Pick a folder containing a <code>.urdf</code> file and its
+                  meshes. Everything stays in your browser.
+                </p>
+                <button
+                  style={{ width: '100%' }}
+                  onClick={() => folderRef.current?.click()}
+                >
+                  Select URDF folder…
+                </button>
+
+                {/* From URL */}
+                <div className="props-section" style={{ marginTop: 14 }}>
+                  From URL
+                </div>
+                <p>
+                  Paste a link to a <code>.urdf</code> file — a GitHub page link
+                  or a raw URL. Meshes are fetched from the same repo (the host
+                  must allow cross-origin requests, e.g.{' '}
+                  <code>raw.githubusercontent.com</code>; <code>.xacro</code> is
+                  not supported).
+                </p>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="https://github.com/owner/repo/blob/main/robot.urdf"
+                    value={urlInput}
+                    style={{ flex: 1, minWidth: 0 }}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') onLoadUrl();
+                    }}
+                  />
+                  <button
+                    className="btn-primary"
+                    disabled={urlBusy || !urlInput.trim()}
+                    onClick={onLoadUrl}
+                  >
+                    {urlBusy ? 'Loading…' : 'Load'}
+                  </button>
+                </div>
+
+                {/* Demo */}
+                <p style={{ marginTop: 14 }}>
+                  Just exploring?{' '}
+                  <button
+                    className="btn-link"
+                    style={{ display: 'inline', width: 'auto', padding: 0 }}
+                    onClick={onLoadDemo}
+                    disabled={demoLoading}
+                  >
+                    {demoLoading ? 'loading demo…' : 'load the demo robot'}
+                  </button>
+                </p>
+
+                {report.error && (
+                  <div className="report report-err" style={{ marginTop: 10 }}>
+                    ⚠ {report.error}
+                  </div>
+                )}
+              </div>
+              <div className="modal-foot">
+                <button onClick={() => setShowLoad(false)}>Close</button>
               </div>
             </div>
           </div>,

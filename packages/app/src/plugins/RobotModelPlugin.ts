@@ -61,6 +61,47 @@ interface Settings {
   manual_pose: ManualPose;
 }
 
+/** Normalize a GitHub web URL (`/blob/`, `/tree/`, `/raw/`) to a raw-content
+ * URL. Other hosts (including an already-raw URL) pass through unchanged. */
+function toRawUrl(u: string): string {
+  try {
+    const url = new URL(u);
+    if (url.hostname === 'github.com') {
+      const m = url.pathname.match(/^\/([^/]+)\/([^/]+)\/(?:blob|tree|raw)\/(.+)$/);
+      if (m) return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}`;
+    }
+    return u;
+  } catch {
+    return u;
+  }
+}
+
+/** Raw repo base (through the git ref) for resolving a URDF's `package://` mesh
+ * refs, e.g. `…/<owner>/<repo>/<ref>/`. For a `raw.githubusercontent.com` URL we
+ * know the layout exactly; otherwise fall back to the URDF file's own folder. */
+function repoBaseOf(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hostname === 'raw.githubusercontent.com') {
+      const m = url.pathname.match(/^\/([^/]+)\/([^/]+)\/([^/]+)\//);
+      if (m) return `${url.origin}/${m[1]}/${m[2]}/${m[3]}/`;
+    }
+  } catch {
+    /* fall through */
+  }
+  return rawUrl.slice(0, rawUrl.lastIndexOf('/') + 1);
+}
+
+/** Resolve a mesh ref from a URL-loaded URDF against the remote repo base.
+ * `package://<pkg>/<rest>` → `<base><rest>` (the package's contents sit at the
+ * repo root — the common `*_description` layout); absolute http(s) pass through;
+ * bare relative refs resolve against the base. */
+function resolveRepoMeshUrl(path: string, base: string): string {
+  if (/^https?:\/\//.test(path)) return path;
+  const rest = path.replace(/^package:\/\/[^/]+\//, '').replace(/^\.?\//, '');
+  return `${base}${rest}`;
+}
+
 /** Path of a local file, whether an OS `File` or a fetched `PickedFile`. */
 function pathOfLocal(f: File | PickedFile): string {
   return 'path' in f ? f.path : f.webkitRelativePath || f.name;
@@ -100,6 +141,9 @@ export class RobotModelPlugin implements DisplayPlugin {
   /** Accumulated local files (URDF + meshes), for re-resolution. Either OS
    * file-picker `File`s or `PickedFile`s fetched for the bundled demo robot. */
   private localFiles: Array<File | PickedFile> = [];
+  /** Raw repo base for a URDF loaded from a URL, so its `package://` mesh refs
+   * resolve to remote URLs (null when not loading from a URL). */
+  private remoteUrdfBase: string | null = null;
 
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
@@ -221,6 +265,33 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   /**
+   * Load a URDF from a URL — a GitHub `blob`/`tree` page URL or a raw URL. The
+   * URDF is fetched and its `package://`/relative mesh refs are resolved against
+   * the same repo (raw base), so `urdf-loader` fetches each mesh on demand
+   * cross-origin (works for CORS-enabled hosts like raw.githubusercontent.com).
+   * It's a preview load — no live data — so joints/pose default to manual.
+   */
+  async loadFromUrdfUrl(input: string): Promise<void> {
+    const url = toRawUrl(input.trim());
+    this.settings.urdf_source = 'local';
+    this.settings.joint_source = 'manual';
+    this.settings.pose_source = 'manual';
+    this.localResolver?.dispose();
+    this.localResolver = null;
+    this.localFiles = [];
+    this.remoteUrdfBase = repoBaseOf(url);
+    await this.loadRobot(async () => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Could not fetch URDF (HTTP ${res.status})`);
+      const text = await res.text();
+      if (/<\s*robot[\s>]/i.test(text) === false) {
+        throw new Error('That URL does not look like a URDF (no <robot> element)');
+      }
+      return this.buildLoader().parse(text) as URDFRobot;
+    }, `urdfurl:${url}`);
+  }
+
+  /**
    * Merge an additional folder of meshes into the local set and reload. Used to
    * recover when the URDF's `package://` paths don't match the first folder —
    * the resolver matches by filename, so any folder containing the meshes works.
@@ -239,6 +310,7 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   private async reloadLocal(): Promise<void> {
+    this.remoteUrdfBase = null; // local files resolve via the blob resolver
     const urdfFile = this.localFiles.find((f) => /\.urdf$/i.test(pathOfLocal(f)));
     this.settings.urdf_source = 'local';
     if (!urdfFile) {
@@ -256,6 +328,7 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   private async loadFromChannel(model: RobotModel): Promise<void> {
+    this.remoteUrdfBase = null; // channel URDFs resolve via the hub asset server
     const url = model.urdf_url ?? '';
     if (!url || `url:${url}` === this.loadedKey) return;
     await this.loadRobot(
@@ -326,9 +399,13 @@ export class RobotModelPlugin implements DisplayPlugin {
     material: THREE.Material | undefined,
     resolver?: LocalAssetResolver,
   ): Promise<THREE.Object3D> {
-    // Local: pass the raw path; the manager's URL modifier maps it (and any
-    // sub-resources) to blob URLs. Remote: rewrite onto the hub asset server.
-    const url = resolver ? path : this.resolveMeshUrl(path);
+    // Local files: pass the raw path; the manager's URL modifier maps it (and
+    // any sub-resources) to blob URLs. URL-loaded URDF: resolve against the
+    // remote repo base. Channel URDF: rewrite onto the hub asset server.
+    let url: string;
+    if (resolver) url = path;
+    else if (this.remoteUrdfBase) url = resolveRepoMeshUrl(path, this.remoteUrdfBase);
+    else url = this.resolveMeshUrl(path);
     return loadMeshFromUrl(url, extOf(path), material, resolver?.manager);
   }
 
