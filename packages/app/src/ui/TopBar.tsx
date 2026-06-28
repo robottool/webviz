@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
-import { useSettingsStore } from '../store/settings.store.js';
+import { useSettingsStore, type ThemeId } from '../store/settings.store.js';
 import { recorder } from '../core/recorder.js';
 import { player } from '../core/player.js';
 import {
@@ -60,7 +60,7 @@ export function TopBar() {
 function SettingsMenu() {
   const btnRef = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const { syncWindowMs, recordingCapMB, hubUrl, set, reset } =
+  const { theme, syncWindowMs, recordingCapMB, hubUrl, set, reset } =
     useSettingsStore();
 
   const open = () => {
@@ -99,6 +99,17 @@ function SettingsMenu() {
               className="tab-add-menu settings-menu"
               style={{ top: pos.top, left: pos.left }}
             >
+              <label className="settings-row">
+                <span>Theme</span>
+                <select
+                  value={theme}
+                  onChange={(e) => set({ theme: e.target.value as ThemeId })}
+                >
+                  <option value="telemetry">Sci-fi telemetry</option>
+                  <option value="minimal">Clean minimal</option>
+                  <option value="vibrant">Vibrant</option>
+                </select>
+              </label>
               <label className="settings-row">
                 <span>Sync window (ms)</span>
                 <input

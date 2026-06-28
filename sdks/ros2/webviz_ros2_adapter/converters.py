@@ -196,6 +196,30 @@ def posecov_to_wv(msg: Any) -> dict[str, Any]:
     return out
 
 
+# --- reverse: wv/* JSON → ROS 2 message (§6.2 reverse bridge) ---
+# Mirror image of the forward converters: these *fill* a pre-constructed ROS
+# message (passed in by the node, which owns the message classes) so this module
+# still imports no message packages and stays node-testable with duck-typed
+# stand-ins. The node sets msg.header.stamp (clock access lives in the node).
+
+
+def fill_posestamped_from_wv(data: dict[str, Any], msg: Any) -> None:
+    """wv/Pose → geometry_msgs/PoseStamped (inverse of `posestamped_to_wv`).
+
+    wv/Pose payload: {frame_id, position:[x,y,z], orientation:[x,y,z,w]}.
+    """
+    msg.header.frame_id = data.get("frame_id", "")
+    px, py, pz = data.get("position", [0.0, 0.0, 0.0])
+    ox, oy, oz, ow = data.get("orientation", [0.0, 0.0, 0.0, 1.0])
+    msg.pose.position.x = float(px)
+    msg.pose.position.y = float(py)
+    msg.pose.position.z = float(pz)
+    msg.pose.orientation.x = float(ox)
+    msg.pose.orientation.y = float(oy)
+    msg.pose.orientation.z = float(oz)
+    msg.pose.orientation.w = float(ow)
+
+
 def marker_to_wv(msg: Any) -> dict[str, Any]:
     """visualization_msgs/Marker → wv/Marker."""
     out: dict[str, Any] = {

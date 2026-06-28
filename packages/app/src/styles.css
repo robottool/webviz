@@ -2,6 +2,45 @@
    doc targets Tailwind + shadcn/ui for the full build. */
 
 :root {
+  /* Default theme: "sci-fi telemetry" (deep dark, cyan accent, soft glow).
+     The other two themes below override these vars via [data-theme], set on
+     <html> by store/settings.store.ts. Keeping the default in :root means the
+     correct look paints before JS runs (no theme flash for the default). */
+  --bg: #0a0e14;
+  --bg-2: #111722;
+  --bg-3: #1a2330;
+  --border: #232d3b;
+  --text: #d7dee8;
+  --text-dim: #8593a6;
+  --accent: #38bdf8;
+  --accent-2: #818cf8;
+  --green: #34d399;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Theme effect knobs (consumed by the "Theme polish" section at the bottom).
+     Set to `none`/flat in the minimal theme to flatten the effects back out. */
+  --app-bg: radial-gradient(135% 130% at 50% -10%, #131c29 0%, #070a0f 62%);
+  --surface-hi: rgba(255, 255, 255, 0.045);
+  --glow-accent: 0 0 12px -2px var(--accent);
+  --glow-live: 0 0 8px var(--green);
+  --accent-fill: var(--accent);
+  --scroll-thumb: #2c3a4d;
+  --scroll-thumb-hover: #3c5068;
+
+  /* Per-tab-type accent hues (keyed off data-tabtype in the tab bar). */
+  --c-3d: #38bdf8;
+  --c-image: #a78bfa;
+  --c-plot: #34d399;
+  --c-map: #2dd4bf;
+  --c-inspector: #94a3b8;
+  --c-log: #fbbf24;
+}
+
+/* Theme: clean minimal — the original flat GitHub-dark, no glow/gradient.
+   Only the vars that differ from :root are listed; the rest cascade through. */
+[data-theme='minimal'] {
   --bg: #0e1116;
   --bg-2: #161b22;
   --bg-3: #1f2630;
@@ -9,10 +48,44 @@
   --text: #d7dee8;
   --text-dim: #8b97a7;
   --accent: #3fb6ff;
+  --accent-2: #3fb6ff;
+  --app-bg: #0e1116;
+  --surface-hi: rgba(255, 255, 255, 0.02);
+  --glow-accent: none;
+  --glow-live: none;
+  --accent-fill: var(--accent);
+  --scroll-thumb: #2a323d;
+  --scroll-thumb-hover: #3a4654;
+  --c-3d: var(--accent);
+  --c-inspector: #8b97a7;
+}
+
+/* Theme: vibrant — saturated palette, gradient accent, stronger glow. */
+[data-theme='vibrant'] {
+  --bg: #0c0a14;
+  --bg-2: #161325;
+  --bg-3: #221c38;
+  --border: #322a52;
+  --text: #ece8f7;
+  --text-dim: #9a8fc0;
+  --accent: #7c8bff;
+  --accent-2: #e879f9;
   --green: #34d399;
-  --red: #f87171;
+  --red: #fb7185;
   --yellow: #fbbf24;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --app-bg: radial-gradient(135% 130% at 50% -10%, #1d1640 0%, #0a0712 66%);
+  --surface-hi: rgba(255, 255, 255, 0.06);
+  --glow-accent: 0 0 16px -2px var(--accent);
+  --glow-live: 0 0 10px var(--green);
+  --accent-fill: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --scroll-thumb: #3a2f5e;
+  --scroll-thumb-hover: #54447e;
+  --c-3d: #60a5fa;
+  --c-image: #c084fc;
+  --c-plot: #4ade80;
+  --c-map: #2dd4bf;
+  --c-inspector: #a5b4fc;
+  --c-log: #fbbf24;
 }
 
 * {
@@ -27,7 +100,7 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: var(--app-bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13px;
@@ -1230,4 +1303,154 @@ button:disabled {
   padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Theme polish (§11). One set of shared effects driven by the
+   per-theme variables at the top of this file; only the variable
+   values differ between themes. The glow/elevation vars resolve to
+   `none`/flat in the minimal theme, which flattens these back out.
+   ───────────────────────────────────────────────────────────── */
+
+/* Smooth micro-interactions instead of instant snaps. */
+button,
+.tab,
+.icon-btn,
+.display-item,
+.tab-add-item,
+.split-preset,
+.split-pane-btn,
+.split-pane-close,
+.tab-close,
+.layout-del,
+.plot-chip-x,
+.status-dot,
+.split-divider,
+input,
+select {
+  transition:
+    background-color 0.13s ease,
+    border-color 0.13s ease,
+    color 0.13s ease,
+    box-shadow 0.13s ease,
+    opacity 0.13s ease;
+}
+
+/* Thin themed scrollbars (replaces the OS default that breaks the dark look). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+/* "Live" state actually feels live: connected dot glows, connecting pulses. */
+.status-connected {
+  box-shadow: var(--glow-live);
+}
+.status-connecting {
+  animation: rec-pulse 1.1s ease-in-out infinite;
+}
+
+/* Subtle machined-surface highlight on raised chrome. */
+.topbar,
+.split-pane-header,
+.threed-toolbar,
+.imagetab-toolbar,
+.plottab-toolbar,
+.logtab-toolbar,
+.inspector-toolbar,
+.playback-bar,
+.statusbar {
+  box-shadow: inset 0 1px 0 var(--surface-hi);
+}
+/* Floating menus keep their drop shadow + gain the highlight. */
+.tab-add-menu {
+  box-shadow:
+    inset 0 1px 0 var(--surface-hi),
+    0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Per-tab-type accent colour (keyed off data-tabtype set in TabBar). */
+.tab[data-tabtype='3d'] {
+  --tab-accent: var(--c-3d);
+}
+.tab[data-tabtype='image'] {
+  --tab-accent: var(--c-image);
+}
+.tab[data-tabtype='plot'] {
+  --tab-accent: var(--c-plot);
+}
+.tab[data-tabtype='map'] {
+  --tab-accent: var(--c-map);
+}
+.tab[data-tabtype='inspector'] {
+  --tab-accent: var(--c-inspector);
+}
+.tab[data-tabtype='log'] {
+  --tab-accent: var(--c-log);
+}
+.tab .tab-icon {
+  color: var(--tab-accent, var(--accent));
+}
+.tab:hover {
+  color: var(--text);
+}
+
+/* Active tab: a type-coloured underbar with a glow. */
+.tab-active {
+  position: relative;
+}
+.tab-active::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--tab-accent, var(--accent));
+  box-shadow: var(--glow-accent);
+}
+
+/* Accent glow on focus / primary affordances. */
+.split-pane-focused {
+  box-shadow: var(--glow-accent);
+}
+.conn-btn:hover,
+.btn-primary:hover,
+.split-divider:hover {
+  box-shadow: var(--glow-accent);
+}
+
+/* Gradient-capable accent fills (a flat colour in every theme but vibrant). */
+.btn-primary,
+.seg-active {
+  background: var(--accent-fill);
+  box-shadow: var(--glow-accent);
+}
+
+/* Theme picker select matches the other settings inputs. */
+.settings-row select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
 }

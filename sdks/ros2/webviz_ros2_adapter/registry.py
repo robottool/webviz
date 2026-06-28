@@ -76,3 +76,38 @@ REGISTRY: dict[str, TypeEntry] = {
         C.pointcloud2_to_payload,
     ),
 }
+
+
+# --- reverse bridge (§6.2): wv interactive channel → ROS 2 topic ---------------
+#
+# The forward table keys on ROS *type* because a robot can expose anything. The
+# reverse direction is the opposite: it only ever carries the small, fixed set of
+# messages WebViz *itself* can emit (interactive displays), so we key on the wv
+# channel *name* the producer publishes. Today that's the CoordinateFrame gizmo's
+# wv/Pose (default channel `tcp_target`). Add a row per future interactive
+# producer — no discovery or per-deployment config needed.
+
+
+@dataclass(frozen=True)
+class ReverseEntry:
+    """How to bridge one interactive wv channel back to a ROS topic."""
+
+    schema: str  # wv/* schema the channel carries (sanity / documentation)
+    module: str  # ROS message module, e.g. "geometry_msgs.msg"
+    cls: str  # ROS message class, e.g. "PoseStamped"
+    topic: str  # ROS topic to publish on
+    fill: Callable[[Any, Any], None]  # (wv data dict, ros msg) -> None (mutates msg)
+    stamped: bool = True  # set msg.header.stamp from the node clock before publish
+
+    def import_class(self) -> type:
+        mod = __import__(self.module, fromlist=[self.cls])
+        return getattr(mod, self.cls)
+
+
+# wv channel name → reverse bridge entry.
+REVERSE_REGISTRY: dict[str, ReverseEntry] = {
+    "tcp_target": ReverseEntry(
+        "wv/Pose", "geometry_msgs.msg", "PoseStamped", "/tcp_target",
+        C.fill_posestamped_from_wv,
+    ),
+}

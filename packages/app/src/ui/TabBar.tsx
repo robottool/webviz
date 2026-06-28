@@ -42,6 +42,7 @@ export function TabBar() {
         <div
           key={tab.id}
           className={`tab ${tab.id === activeTabId ? 'tab-active' : ''}`}
+          data-tabtype={tab.type}
           onClick={() => activateTab(tab.id)}
         >
           <span className="tab-icon">{tab.icon}</span>

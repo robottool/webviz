@@ -2,6 +2,7 @@
  * App settings (the ⚙ panel): the handful of *global* knobs that aren't already
  * per-tab. Persisted to localStorage and applied to the live singletons on load
  * and on every change:
+ *   - theme          → visual theme (sets data-theme on <html>; styles.css)
  *   - syncWindowMs   → TimeManager reorder window (§8)
  *   - recordingCapMB → in-memory recording cap (core/recorder.ts)
  *   - hubUrl         → default connection URL (read by connection.store; '' = auto)
@@ -14,7 +15,11 @@ import { create } from 'zustand';
 import { hubClient } from '../protocol/HubClient.js';
 import { recorder } from '../core/recorder.js';
 
+/** Visual themes. `telemetry` is the default; styles.css holds the palettes. */
+export type ThemeId = 'telemetry' | 'minimal' | 'vibrant';
+
 export interface Settings {
+  theme: ThemeId;
   syncWindowMs: number;
   recordingCapMB: number;
   /** Empty string means "derive from location" (see connection.store). */
@@ -22,6 +27,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  theme: 'telemetry',
   syncWindowMs: 20,
   recordingCapMB: 256,
   hubUrl: '',
@@ -40,10 +46,13 @@ function hydrate(): Settings {
   }
 }
 
-/** Push settings into the live singletons (TimeManager, recorder). */
+/** Push settings into the live singletons (TimeManager, recorder, DOM theme). */
 function apply(s: Settings): void {
   hubClient.time.setSyncWindow(s.syncWindowMs);
   recorder.setCapMB(s.recordingCapMB);
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = s.theme;
+  }
 }
 
 function persist(s: Settings): void {
@@ -66,6 +75,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   ...initial,
   set: (patch) => {
     const next: Settings = {
+      theme: patch.theme ?? get().theme,
       syncWindowMs: patch.syncWindowMs ?? get().syncWindowMs,
       recordingCapMB: patch.recordingCapMB ?? get().recordingCapMB,
       hubUrl: patch.hubUrl ?? get().hubUrl,

@@ -91,3 +91,107 @@ class Client:
 
     def close(self) -> None:
         self._ws.close()
+
+
+class Consumer:
+    """Connects to a WebViz hub as a *client* (`role=client`) and routes incoming
+    JSON `message` frames to per-channel-name callbacks.
+
+    The receive-side counterpart of `Client`. Mirrors the app's HubClient: you
+    subscribe by channel *name*, and the subscription is deferred until a channel
+    of that name is advertised — via the initial `server_info` or a later
+    `advertise`. Only JSON data frames are delivered; binary frames (wv/Image,
+    wv/PointCloud) are ignored, since the reverse / consume path only needs the
+    small interactive JSON schemas (e.g. the gizmo's wv/Pose).
+
+    A background daemon thread drains the socket; callbacks run on that thread.
+    """
+
+    def __init__(self, url: str):
+        self._ws = _ws_connect(url)
+        self._lock = threading.Lock()
+        self._by_id: dict[int, dict[str, Any]] = {}  # channel_id -> ChannelInfo
+        self._name_to_id: dict[str, int] = {}
+        self._wanted: dict[str, Any] = {}  # name -> callback(data, timestamp)
+        self._subscribed: set[int] = set()
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def subscribe(self, name: str, callback: Any) -> None:
+        """Route frames from channel `name` to `callback(data, timestamp)`.
+
+        Safe to call before the channel exists; it subscribes once it appears.
+        """
+        with self._lock:
+            self._wanted[name] = callback
+            cid = self._name_to_id.get(name)
+        if cid is not None:
+            self._ensure_subscribed(cid)
+
+    def _ensure_subscribed(self, cid: int) -> None:
+        with self._lock:
+            if cid in self._subscribed:
+                return
+            self._subscribed.add(cid)
+        self._send_json({"op": "subscribe", "channels": [{"id": cid}]})
+
+    def _register(self, info: dict[str, Any]) -> None:
+        cid, name = info.get("id"), info.get("name")
+        if cid is None or name is None:
+            return
+        with self._lock:
+            self._by_id[cid] = info
+            self._name_to_id[name] = cid
+            wanted = name in self._wanted
+        if wanted:
+            self._ensure_subscribed(cid)
+
+    def _unregister(self, name: str) -> None:
+        with self._lock:
+            cid = self._name_to_id.pop(name, None)
+            if cid is not None:
+                self._by_id.pop(cid, None)
+                self._subscribed.discard(cid)
+
+    def _send_json(self, msg: dict[str, Any]) -> None:
+        with self._lock:
+            self._ws.send(json.dumps(msg))
+
+    def _loop(self) -> None:
+        try:
+            for raw in self._ws:  # ends when the socket closes
+                if not self._running:
+                    break
+                try:
+                    self._handle(raw)
+                except Exception:  # one bad frame must not kill the reader
+                    continue
+        except Exception:
+            pass
+
+    def _handle(self, raw: Any) -> None:
+        if isinstance(raw, (bytes, bytearray)):
+            return  # binary data frame; consume path is JSON-only
+        msg = json.loads(raw)
+        op = msg.get("op")
+        if op == "server_info":
+            for ch in msg.get("channels", []):
+                self._register(ch)
+        elif op == "advertise":
+            self._register(msg.get("channel", {}))
+        elif op == "unadvertise":
+            name = msg.get("channel_name")
+            if name:
+                self._unregister(name)
+        elif op == "message":
+            cid = msg.get("channel_id")
+            with self._lock:
+                info = self._by_id.get(cid)
+                cb = self._wanted.get(info["name"]) if info else None
+            if cb:
+                cb(msg.get("data"), msg.get("timestamp"))
+
+    def close(self) -> None:
+        self._running = False
+        self._ws.close()
