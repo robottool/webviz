@@ -4,7 +4,6 @@
 Publishes three channels so a UR5 arm appears, drives around, and waves:
 
   robot_description  wv/RobotModel   URDF reference (served by the hub at :8080)
-                                     + inline SRDF (home/ready/up pose presets)
   joint_states       wv/JointState   the 6 UR joints, animated
   transforms         wv/Transform    odom -> base_link (the arm's base pose)
 
@@ -34,42 +33,6 @@ UR_JOINTS = [
     "wrist_3_joint",
 ]
 
-# SRDF companion (sent inline as srdf_xml on the wv/RobotModel channel). WebViz
-# reads the <group_state>s and offers each as a "Pose preset" in the RobotModel
-# display's properties. The shipped ur5.srdf has only collision pairs, so we
-# author a few named poses here to exercise the feature.
-UR_SRDF_XML = """<?xml version="1.0"?>
-<robot name="ur5">
-  <group name="manipulator">
-    <chain base_link="base_link" tip_link="tool0"/>
-  </group>
-  <group_state name="home" group="manipulator">
-    <joint name="shoulder_pan_joint" value="0"/>
-    <joint name="shoulder_lift_joint" value="0"/>
-    <joint name="elbow_joint" value="0"/>
-    <joint name="wrist_1_joint" value="0"/>
-    <joint name="wrist_2_joint" value="0"/>
-    <joint name="wrist_3_joint" value="0"/>
-  </group_state>
-  <group_state name="ready" group="manipulator">
-    <joint name="shoulder_pan_joint" value="0"/>
-    <joint name="shoulder_lift_joint" value="-1.5708"/>
-    <joint name="elbow_joint" value="1.5708"/>
-    <joint name="wrist_1_joint" value="-1.5708"/>
-    <joint name="wrist_2_joint" value="-1.5708"/>
-    <joint name="wrist_3_joint" value="0"/>
-  </group_state>
-  <group_state name="up" group="manipulator">
-    <joint name="shoulder_pan_joint" value="0"/>
-    <joint name="shoulder_lift_joint" value="-1.5708"/>
-    <joint name="elbow_joint" value="0"/>
-    <joint name="wrist_1_joint" value="-1.5708"/>
-    <joint name="wrist_2_joint" value="0"/>
-    <joint name="wrist_3_joint" value="0"/>
-  </group_state>
-</robot>
-"""
-
 
 def quat_from_yaw(yaw: float) -> list[float]:
     """Quaternion [x, y, z, w] for a rotation about +Z."""
@@ -80,7 +43,6 @@ def robot_model(asset_base: str) -> dict:
     return {
         "name": "ur5",
         "urdf_url": f"{asset_base}/ur_description/urdf/ur5_robot.urdf",
-        "srdf_xml": UR_SRDF_XML,
     }
 
 

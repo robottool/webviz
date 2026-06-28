@@ -46,13 +46,6 @@ export interface RobotModel {
   name: string;
   urdf_url?: string;
   urdf_xml?: string;
-  /**
-   * Optional SRDF (semantic robot description) companion, as a URL or inline
-   * XML. WebViz reads only its `<group_state>`s today, exposing each as a named
-   * pose preset in the RobotModel display.
-   */
-  srdf_url?: string;
-  srdf_xml?: string;
   package_map?: Record<string, string>;
 }
 

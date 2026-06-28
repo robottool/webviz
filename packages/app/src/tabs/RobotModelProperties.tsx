@@ -28,7 +28,6 @@ interface RMSettings {
   opacity: number;
   manual_joints: Record<string, number>;
   manual_pose: ManualPose;
-  pose_preset: string;
 }
 
 export function RobotModelProperties({
@@ -56,7 +55,6 @@ export function RobotModelProperties({
 
   const s = plugin.getSettings() as unknown as RMSettings;
   const report = plugin.getReport();
-  const groupStates = plugin.getGroupStates();
 
   // Auto-open the recovery dialog when a local model has missing meshes; it
   // re-opens whenever the missing set changes and closes once all resolve.
@@ -195,31 +193,6 @@ export function RobotModelProperties({
         <>
           {/* --- Joints --- */}
           <div className="props-section">Joints</div>
-          {/* SRDF group states → named pose presets (applying one snaps the
-              robot and switches joints to manual). Only shown if the SRDF
-              carried any. */}
-          {groupStates.length > 0 && (
-            <label className="props-row">
-              <span title="SRDF group states">Pose preset</span>
-              <select
-                value={s.pose_preset}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    plugin.applyGroupState(e.target.value);
-                    onChange();
-                    force();
-                  }
-                }}
-              >
-                <option value="">—</option>
-                {groupStates.map((g) => (
-                  <option key={g.name} value={g.name}>
-                    {g.group ? `${g.name} (${g.group})` : g.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <Segmented<Source>
             value={s.joint_source}
             options={[
