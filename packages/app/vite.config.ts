@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // Served at root by the hub (and in dev); a static GitHub Pages deploy lives
+  // under /<repo>/, so the Pages build sets WEBVIZ_BASE to override. Defaulting
+  // to '/' keeps the hub-served build and dev server unchanged.
+  base: process.env.WEBVIZ_BASE ?? '/',
   plugins: [react()],
   server: {
     port: 5173,

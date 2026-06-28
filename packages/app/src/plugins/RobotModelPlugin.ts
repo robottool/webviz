@@ -21,7 +21,7 @@ import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 import type { JointState, RobotModel } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
-import { LocalAssetResolver } from '../core/meshResolver.js';
+import { LocalAssetResolver, type PickedFile } from '../core/meshResolver.js';
 import { basename, defaultAssetBase, extOf, loadMeshFromUrl } from '../core/meshLoad.js';
 
 export type Source = 'channel' | 'manual';
@@ -61,6 +61,16 @@ interface Settings {
   manual_pose: ManualPose;
 }
 
+/** Path of a local file, whether an OS `File` or a fetched `PickedFile`. */
+function pathOfLocal(f: File | PickedFile): string {
+  return 'path' in f ? f.path : f.webkitRelativePath || f.name;
+}
+
+/** Text contents of a local file (both `File` and `Blob` expose `.text()`). */
+function textOfLocal(f: File | PickedFile): Promise<string> {
+  return 'blob' in f ? f.blob.text() : f.text();
+}
+
 function emptyReport(): ValidationReport {
   return {
     loaded: false,
@@ -87,8 +97,9 @@ export class RobotModelPlugin implements DisplayPlugin {
   private loading = false;
   private report: ValidationReport = emptyReport();
   private localResolver: LocalAssetResolver | null = null;
-  /** Accumulated locally-picked files (URDF + meshes), for re-resolution. */
-  private localFiles: File[] = [];
+  /** Accumulated local files (URDF + meshes), for re-resolution. Either OS
+   * file-picker `File`s or `PickedFile`s fetched for the bundled demo robot. */
+  private localFiles: Array<File | PickedFile> = [];
 
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
@@ -189,13 +200,34 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   /**
+   * Load the bundled demo robot, fetched over relative HTTP from the app's
+   * static assets (so it works on a hub-less static deploy). `baseUrl` is the
+   * folder the files live under and `paths` are the file paths within it
+   * (a `package://`/relative-style layout the resolver matches by filename).
+   * Converges on the same local pipeline as the file picker.
+   */
+  async loadFromManifest(baseUrl: string, paths: string[]): Promise<void> {
+    const base = baseUrl.replace(/\/$/, '');
+    this.localFiles = await Promise.all(
+      paths.map(async (p): Promise<PickedFile> => {
+        const res = await fetch(`${base}/${p}`);
+        if (!res.ok) throw new Error(`fetch ${p}: ${res.status}`);
+        return { path: p, blob: await res.blob() };
+      }),
+    );
+    this.settings.joint_source = 'manual';
+    this.settings.pose_source = 'manual';
+    await this.reloadLocal();
+  }
+
+  /**
    * Merge an additional folder of meshes into the local set and reload. Used to
    * recover when the URDF's `package://` paths don't match the first folder —
    * the resolver matches by filename, so any folder containing the meshes works.
    */
   async addMeshFiles(extra: File[]): Promise<void> {
     if (extra.length === 0) return;
-    const seen = new Set(this.localFiles.map((f) => f.webkitRelativePath || f.name));
+    const seen = new Set(this.localFiles.map(pathOfLocal));
     for (const f of extra) {
       const key = f.webkitRelativePath || f.name;
       if (!seen.has(key)) {
@@ -207,21 +239,19 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   private async reloadLocal(): Promise<void> {
-    const urdfFile = this.localFiles.find(
-      (f) => /\.urdf$/i.test(f.name) || /\.urdf$/i.test(f.webkitRelativePath),
-    );
+    const urdfFile = this.localFiles.find((f) => /\.urdf$/i.test(pathOfLocal(f)));
     this.settings.urdf_source = 'local';
     if (!urdfFile) {
       this.report = { ...emptyReport(), error: 'No .urdf file in the selected folder' };
       this.emitChange();
       return;
     }
-    const text = await urdfFile.text();
+    const text = await textOfLocal(urdfFile);
     this.localResolver?.dispose();
     this.localResolver = new LocalAssetResolver(this.localFiles);
     await this.loadRobot(
       () => this.buildLoader(this.localResolver ?? undefined).parse(text) as URDFRobot,
-      `local:${urdfFile.webkitRelativePath || urdfFile.name}:${this.localFiles.length}`,
+      `local:${pathOfLocal(urdfFile)}:${this.localFiles.length}`,
     );
   }
 

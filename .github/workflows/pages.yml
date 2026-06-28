@@ -1,0 +1,64 @@
+# Build the WebViz app as a static site and deploy it to GitHub Pages.
+#
+# This deploys a HUB-LESS demo: only the fully client-side features work
+# (loading a URDF — including the bundled "demo robot" — and driving it with the
+# manual joint sliders). Everything that needs the broker (live channels, the
+# Python/ROS demos, recording playback, layouts) is unavailable on Pages.
+#
+# WEBVIZ_BASE makes Vite emit asset URLs under /<repo>/ (where Pages serves);
+# the hub-served build and local dev are unaffected (they default to '/').
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let one deploy finish before the next starts.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The app imports @webviz/protocol from its dist/, so build it first.
+      - run: pnpm --filter @webviz/protocol build
+
+      - name: Build app (static, based at /<repo>/)
+        env:
+          WEBVIZ_BASE: /${{ github.event.repository.name }}/
+        run: pnpm --filter @webviz/app build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -817,6 +817,20 @@ button:disabled {
   border-color: var(--yellow);
   color: var(--yellow);
 }
+.btn-link {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 12px;
+}
+.btn-link:hover {
+  text-decoration: underline;
+}
+.btn-link:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
 
 /* --- Placeholder --- */
 .placeholder {

@@ -39,6 +39,7 @@ export function RobotModelProperties({
 }) {
   const [, force] = useReducer((n: number) => n + 1, 0);
   const [showMissing, setShowMissing] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const folderRef = useRef<HTMLInputElement>(null);
   const meshFolderRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +85,26 @@ export function RobotModelProperties({
     e.target.value = '';
   };
 
+  // Load the bundled demo robot, fetched from the app's static assets (works on
+  // a hub-less static deploy). Converges on the same local-load pipeline as the
+  // folder picker, so it flows through the same validation + mesh-check report.
+  const onLoadDemo = async () => {
+    setDemoLoading(true);
+    try {
+      const base = `${import.meta.env.BASE_URL}demo-robot`;
+      const manifest = (await (await fetch(`${base}/manifest.json`)).json()) as {
+        files: string[];
+      };
+      await plugin.loadFromManifest(base, manifest.files);
+      onChange();
+      force();
+    } catch (err) {
+      console.error('[RobotModel] demo robot load failed', err);
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   const onPickMeshFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length) {
@@ -121,6 +142,16 @@ export function RobotModelProperties({
           >
             Load URDF folder…
           </button>
+          {!report.loaded && (
+            <button
+              className="btn-link"
+              style={{ width: '100%', marginTop: 4 }}
+              onClick={onLoadDemo}
+              disabled={demoLoading}
+            >
+              {demoLoading ? 'Loading demo…' : 'or load demo robot'}
+            </button>
+          )}
         </>
       ) : (
         <label className="props-row">
