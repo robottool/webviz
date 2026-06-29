@@ -44,7 +44,11 @@ export function RobotModelProperties({
   const [showLoad, setShowLoad] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [urlInput, setUrlInput] = useState('');
+  const [meshUrlInput, setMeshUrlInput] = useState('');
   const [urlBusy, setUrlBusy] = useState(false);
+  // The URL load is a two-step wizard: pick a source ('choose'), then for a URL
+  // give the meshes location ('mesh').
+  const [loadStep, setLoadStep] = useState<'choose' | 'mesh'>('choose');
   const folderRef = useRef<HTMLInputElement>(null);
   const meshFolderRef = useRef<HTMLInputElement>(null);
 
@@ -62,9 +66,13 @@ export function RobotModelProperties({
   const s = plugin.getSettings() as unknown as RMSettings;
   const report = plugin.getReport();
 
-  // Auto-open the recovery dialog when a local model has missing meshes; it
-  // re-opens whenever the missing set changes and closes once all resolve.
-  const localMissing = s.urdf_source === 'local' && report.meshFailed.length > 0;
+  const urlLoad = s.urdf_source === 'local' && plugin.isUrlLoad();
+  // Auto-open the recovery dialog when a *folder*-loaded model has missing meshes
+  // (URL loads are handled by the meshes-URL wizard step instead). It re-opens
+  // whenever the missing set changes and closes once all resolve.
+  const localMissing =
+    s.urdf_source === 'local' && !urlLoad && report.meshFailed.length > 0;
+  const urlMissing = urlLoad && report.meshFailed.length > 0;
   const failedSig = report.meshFailed.slice().sort().join('|');
   useEffect(() => {
     setShowMissing(localMissing);
@@ -124,7 +132,7 @@ export function RobotModelProperties({
     if (!url) return;
     setUrlBusy(true);
     try {
-      await plugin.loadFromUrdfUrl(url);
+      await plugin.loadFromUrdfUrl(url, meshUrlInput.trim() || undefined);
       onChange();
       force();
       closeIfLoaded();
@@ -141,6 +149,24 @@ export function RobotModelProperties({
       force();
     }
     e.target.value = '';
+  };
+
+  // Open the load wizard at step 1 (source picker). Clear any stale meshes URL
+  // so a previous robot's value doesn't carry into a fresh load.
+  const openLoad = () => {
+    setMeshUrlInput('');
+    setLoadStep('choose');
+    setShowLoad(true);
+  };
+
+  // Jump straight to the meshes-URL step for the current URL load — used to
+  // change the meshes location when some weren't found. Prefills the URDF URL
+  // from the plugin so it survives a remount.
+  const openMeshStep = () => {
+    const u = plugin.getRemoteUrdfUrl();
+    if (u) setUrlInput(u);
+    setLoadStep('mesh');
+    setShowLoad(true);
   };
 
   return (
@@ -164,10 +190,7 @@ export function RobotModelProperties({
             style={{ display: 'none' }}
             onChange={onPickFolder}
           />
-          <button
-            style={{ width: '100%', marginTop: 6 }}
-            onClick={() => setShowLoad(true)}
-          >
+          <button style={{ width: '100%', marginTop: 6 }} onClick={openLoad}>
             Load URDF…
           </button>
         </>
@@ -200,6 +223,16 @@ export function RobotModelProperties({
         >
           ⚠ Locate {report.meshFailed.length} missing mesh
           {report.meshFailed.length > 1 ? 'es' : ''}…
+        </button>
+      )}
+      {urlMissing && (
+        <button
+          className="btn-warn"
+          style={{ width: '100%', marginTop: 6 }}
+          onClick={openMeshStep}
+        >
+          ⚠ {report.meshFailed.length} mesh
+          {report.meshFailed.length > 1 ? 'es' : ''} not found — change meshes URL…
         </button>
       )}
 
@@ -242,74 +275,112 @@ export function RobotModelProperties({
         createPortal(
           <div className="modal-backdrop" onClick={() => setShowLoad(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">Load robot model</div>
-              <div className="modal-body">
-                {/* From files */}
-                <div className="props-section">From files</div>
-                <p>
-                  Pick a folder containing a <code>.urdf</code> file and its
-                  meshes. Everything stays in your browser.
-                </p>
-                <button
-                  style={{ width: '100%' }}
-                  onClick={() => folderRef.current?.click()}
-                >
-                  Select URDF folder…
-                </button>
+              {loadStep === 'choose' ? (
+                <>
+                  <div className="modal-head">Load robot model</div>
+                  <div className="modal-body">
+                    {/* From files */}
+                    <div className="props-section">From files</div>
+                    <p>
+                      Pick a folder containing a <code>.urdf</code> file and its
+                      meshes. Everything stays in your browser.
+                    </p>
+                    <button
+                      style={{ width: '100%' }}
+                      onClick={() => folderRef.current?.click()}
+                    >
+                      Select URDF folder…
+                    </button>
 
-                {/* From URL */}
-                <div className="props-section" style={{ marginTop: 14 }}>
-                  From URL
-                </div>
-                <p>
-                  Paste a link to a <code>.urdf</code> file — a GitHub page link
-                  or a raw URL. Meshes are fetched from the same repo (the host
-                  must allow cross-origin requests, e.g.{' '}
-                  <code>raw.githubusercontent.com</code>; <code>.xacro</code> is
-                  not supported).
-                </p>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    type="text"
-                    placeholder="https://github.com/owner/repo/blob/main/robot.urdf"
-                    value={urlInput}
-                    style={{ flex: 1, minWidth: 0 }}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') onLoadUrl();
-                    }}
-                  />
-                  <button
-                    className="btn-primary"
-                    disabled={urlBusy || !urlInput.trim()}
-                    onClick={onLoadUrl}
-                  >
-                    {urlBusy ? 'Loading…' : 'Load'}
-                  </button>
-                </div>
+                    {/* From URL */}
+                    <div className="props-section" style={{ marginTop: 14 }}>
+                      From URL
+                    </div>
+                    <p>
+                      Paste a link to a <code>.urdf</code> file — a GitHub page
+                      link or a raw URL. You’ll choose where the meshes are next.
+                      (<code>.xacro</code> is not supported.)
+                    </p>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="text"
+                        placeholder="https://github.com/owner/repo/blob/main/robot.urdf"
+                        value={urlInput}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && urlInput.trim()) setLoadStep('mesh');
+                        }}
+                      />
+                      <button
+                        className="btn-primary"
+                        disabled={!urlInput.trim()}
+                        onClick={() => setLoadStep('mesh')}
+                      >
+                        Next →
+                      </button>
+                    </div>
 
-                {/* Demo */}
-                <p style={{ marginTop: 14 }}>
-                  Just exploring?{' '}
-                  <button
-                    className="btn-link"
-                    style={{ display: 'inline', width: 'auto', padding: 0 }}
-                    onClick={onLoadDemo}
-                    disabled={demoLoading}
-                  >
-                    {demoLoading ? 'loading demo…' : 'load the demo robot'}
-                  </button>
-                </p>
-
-                {report.error && (
-                  <div className="report report-err" style={{ marginTop: 10 }}>
-                    ⚠ {report.error}
+                    {/* Demo */}
+                    <p style={{ marginTop: 14 }}>
+                      Just exploring?{' '}
+                      <button
+                        className="btn-link"
+                        style={{ display: 'inline', width: 'auto', padding: 0 }}
+                        onClick={onLoadDemo}
+                        disabled={demoLoading}
+                      >
+                        {demoLoading ? 'loading demo…' : 'load the demo robot'}
+                      </button>
+                    </p>
                   </div>
-                )}
-              </div>
-              <div className="modal-foot">
-                <button onClick={() => setShowLoad(false)}>Close</button>
-              </div>
+                  <div className="modal-foot">
+                    <button onClick={() => setShowLoad(false)}>Close</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="modal-head">Where are the meshes?</div>
+                  <div className="modal-body">
+                    <p>
+                      Loading <code>{urlInput}</code>.
+                    </p>
+                    <p>
+                      Paste the URL of the <b>folder the mesh files sit in</b> —
+                      each mesh is matched by name, so a GitHub folder link works
+                      (e.g. <code>…/meshes/ur10/visual</code>). Leave blank to
+                      auto-detect from the URDF URL. The host must allow
+                      cross-origin requests (e.g.{' '}
+                      <code>raw.githubusercontent.com</code>).
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Meshes folder URL (blank = auto-detect)"
+                      value={meshUrlInput}
+                      style={{ width: '100%' }}
+                      onChange={(e) => setMeshUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') onLoadUrl();
+                      }}
+                    />
+                    {report.error && (
+                      <div className="report report-err" style={{ marginTop: 10 }}>
+                        ⚠ {report.error}
+                      </div>
+                    )}
+                  </div>
+                  <div className="modal-foot">
+                    <button onClick={() => setLoadStep('choose')}>← Back</button>
+                    <button
+                      className="btn-primary"
+                      disabled={urlBusy || !urlInput.trim()}
+                      onClick={onLoadUrl}
+                    >
+                      {urlBusy ? 'Loading…' : 'Load'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>,
           document.body,
