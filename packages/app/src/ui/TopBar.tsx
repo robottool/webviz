@@ -108,6 +108,7 @@ function SettingsMenu() {
                   <option value="telemetry">Sci-fi telemetry</option>
                   <option value="minimal">Clean minimal</option>
                   <option value="vibrant">Vibrant</option>
+                  <option value="industry">Industry (light)</option>
                 </select>
               </label>
               <label className="settings-row">

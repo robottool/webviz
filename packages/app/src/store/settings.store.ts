@@ -16,7 +16,7 @@ import { hubClient } from '../protocol/HubClient.js';
 import { recorder } from '../core/recorder.js';
 
 /** Visual themes. `telemetry` is the default; styles.css holds the palettes. */
-export type ThemeId = 'telemetry' | 'minimal' | 'vibrant';
+export type ThemeId = 'telemetry' | 'minimal' | 'vibrant' | 'industry';
 
 export interface Settings {
   theme: ThemeId;

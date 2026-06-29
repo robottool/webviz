@@ -14,6 +14,9 @@
   --text-dim: #8593a6;
   --accent: #38bdf8;
   --accent-2: #818cf8;
+  /* Ink (text) colour on top of an --accent fill, e.g. primary buttons. Dark by
+     default to read on the bright accents; light themes flip it to white. */
+  --accent-ink: #04121c;
   --green: #34d399;
   --red: #f87171;
   --yellow: #fbbf24;
@@ -28,6 +31,12 @@
   --accent-fill: var(--accent);
   --scroll-thumb: #2c3a4d;
   --scroll-thumb-hover: #3c5068;
+
+  /* 3D viewport (read by core/SceneManager.ts, applied to the WebGL scene —
+     not CSS-painted, so SceneManager re-reads these on a theme change). */
+  --viewport-bg: #0e1116;
+  --grid-major: #3a4350;
+  --grid-minor: #232a33;
 
   /* Per-tab-type accent hues (keyed off data-tabtype in the tab bar). */
   --c-3d: #38bdf8;
@@ -86,6 +95,42 @@
   --c-map: #2dd4bf;
   --c-inspector: #a5b4fc;
   --c-log: #fbbf24;
+}
+
+/* Theme: industry — a clean, light "engineering software" look (à la Visual
+   Components / CAD tooling): light-grey chrome, white raised surfaces, a single
+   azure accent, flat (no glow). The first light theme, so it relies on the
+   variable-driven surfaces — note the raised order (bg deepest → bg-3 white)
+   and the dark-on-light overlays (--surface-hi, --accent-ink → white). */
+[data-theme='industry'] {
+  --bg: #e8ebef; /* deepest: app frame / inset wells */
+  --bg-2: #f3f5f8; /* panels, top/tab bars */
+  --bg-3: #ffffff; /* raised: inputs, buttons, cards */
+  --border: #ccd2da;
+  --text: #1f2733;
+  --text-dim: #5d6675;
+  --accent: #0c7fd6;
+  --accent-2: #1a9bd7;
+  --accent-ink: #ffffff; /* white text on the blue accent */
+  --green: #1ba672;
+  --red: #d6453d;
+  --yellow: #c47f0a;
+  --app-bg: linear-gradient(180deg, #f7f9fb 0%, #e6eaef 100%);
+  --surface-hi: rgba(0, 0, 0, 0.045); /* hover darkens on light */
+  --glow-accent: none;
+  --glow-live: none;
+  --accent-fill: var(--accent);
+  --scroll-thumb: #c4cbd4;
+  --scroll-thumb-hover: #a7b0bd;
+  --viewport-bg: #eef1f5; /* soft light-grey viewport */
+  --grid-major: #b4bdc8; /* darker major lines read on light */
+  --grid-minor: #d3dae1;
+  --c-3d: #0c7fd6;
+  --c-image: #7c5cd6;
+  --c-plot: #1ba672;
+  --c-map: #0d9aa6;
+  --c-inspector: #5d6675;
+  --c-log: #c47f0a;
 }
 
 * {
@@ -679,7 +724,7 @@ button:disabled {
 }
 .seg-active {
   background: var(--accent);
-  color: #04121c;
+  color: var(--accent-ink);
   border-color: var(--accent);
 }
 .report {
@@ -810,7 +855,7 @@ button:disabled {
 }
 .btn-primary {
   background: var(--accent);
-  color: #04121c;
+  color: var(--accent-ink);
   border-color: var(--accent);
 }
 .btn-warn {

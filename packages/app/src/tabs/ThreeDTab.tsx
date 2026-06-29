@@ -20,6 +20,7 @@ import { RobotModelProperties } from './RobotModelProperties.js';
 import { pluginRegistry } from '../plugins/index.js';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
+import { useSettingsStore } from '../store/settings.store.js';
 
 interface StoredDisplay {
   id: string;
@@ -37,6 +38,8 @@ export function ThreeDTab({ tabId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SceneManager | null>(null);
   const pluginsRef = useRef<DisplayPlugin[]>([]);
+
+  const theme = useSettingsStore((s) => s.theme);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showDisplays, setShowDisplays] = useState(true);
@@ -136,6 +139,12 @@ export function ThreeDTab({ tabId }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Repaint the WebGL viewport (background + grid) when the theme changes; the
+  // CSS vars SceneManager reads have already flipped by the time this runs.
+  useEffect(() => {
+    sceneRef.current?.applyTheme();
+  }, [theme]);
 
   const applyFixedFrame = (frame: string) => {
     setFixedFrame(frame);

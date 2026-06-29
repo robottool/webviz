@@ -11,6 +11,17 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const UP_Z = new THREE.Vector3(0, 0, 1);
 
+/** Read a CSS custom property (set by the theme) as a THREE.Color, falling back
+ * to a literal when it's unset or we're off-DOM. Lets the viewport track the
+ * theme palette without duplicating colours here. */
+function cssColor(name: string, fallback: number): THREE.Color {
+  if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') {
+    return new THREE.Color(fallback);
+  }
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v ? new THREE.Color(v) : new THREE.Color(fallback);
+}
+
 export class SceneManager {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -36,7 +47,7 @@ export class SceneManager {
   constructor(container: HTMLElement) {
     this.container = container;
 
-    this.scene.background = new THREE.Color(0x0e1116);
+    this.scene.background = cssColor('--viewport-bg', 0x0e1116);
 
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
@@ -57,8 +68,7 @@ export class SceneManager {
     this.controls.addEventListener('change', () => this.requestRender());
 
     // World up is +Z; rotate the grid (XY plane) accordingly.
-    this.grid = new THREE.GridHelper(20, 20, 0x3a4350, 0x232a33);
-    this.grid.rotation.x = Math.PI / 2;
+    this.grid = this.buildGrid();
     this.scene.add(this.grid);
 
     this.axes = new THREE.AxesHelper(1);
@@ -78,6 +88,34 @@ export class SceneManager {
       e.preventDefault();
       console.warn('[SceneManager] WebGL context lost');
     });
+  }
+
+  /** A grid coloured from the current theme's CSS vars. */
+  private buildGrid(): THREE.GridHelper {
+    const grid = new THREE.GridHelper(
+      20,
+      20,
+      cssColor('--grid-major', 0x3a4350),
+      cssColor('--grid-minor', 0x232a33),
+    );
+    grid.rotation.x = Math.PI / 2;
+    return grid;
+  }
+
+  /** Re-read theme colours into the WebGL scene (background + grid). Called by
+   * the 3D tab when the theme changes — the CSS vars have flipped by then. */
+  applyTheme(): void {
+    this.scene.background = cssColor('--viewport-bg', 0x0e1116);
+    // GridHelper bakes its colours into geometry, so rebuild it (preserving the
+    // user's show/hide state) rather than mutating in place.
+    const visible = this.grid.visible;
+    this.scene.remove(this.grid);
+    this.grid.geometry.dispose();
+    (this.grid.material as THREE.Material).dispose();
+    this.grid = this.buildGrid();
+    this.grid.visible = visible;
+    this.scene.add(this.grid);
+    this.requestRender();
   }
 
   setGridVisible(v: boolean): void {
