@@ -486,6 +486,8 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.manualDirty = true;
     this.jointsDirty = true;
     this.ctx.scene.addObject(this.id, robot);
+    // Re-frame the viewport once the (re)loaded robot's meshes settle.
+    this.ctx.scene.armAutoFit();
     this.ctx.scene.requestRender();
   }
 

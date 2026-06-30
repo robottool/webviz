@@ -11,6 +11,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SceneManager } from '../core/SceneManager.js';
+import { ViewGizmo } from '../ui/ViewGizmo.js';
 import { uuid } from '../core/uuid.js';
 import { tfManager } from '../core/TFManager.js';
 import { hubClient } from '../protocol/HubClient.js';
@@ -41,6 +42,7 @@ export function ThreeDTab({ tabId }: Props) {
 
   const theme = useSettingsStore((s) => s.theme);
 
+  const [scene, setScene] = useState<SceneManager | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showDisplays, setShowDisplays] = useState(true);
   const [showProps, setShowProps] = useState(true);
@@ -101,6 +103,7 @@ export function ThreeDTab({ tabId }: Props) {
     let disposed = false;
     const scene = new SceneManager(containerRef.current!);
     sceneRef.current = scene;
+    setScene(scene);
     scene.setFixedFrame(fixedFrame);
     tfManager.setFixedFrame(fixedFrame);
 
@@ -109,10 +112,9 @@ export function ThreeDTab({ tabId }: Props) {
       for (const p of pluginsRef.current) if (p.enabled) p.onRender(dt);
     });
 
+    // A fresh 3D panel starts empty — the user adds displays via "＋ Add".
     const seed: Array<Partial<StoredDisplay> & { type: string }> =
-      storedDisplays && storedDisplays.length > 0
-        ? storedDisplays
-        : [{ type: 'RobotModel' }];
+      storedDisplays ?? [];
 
     (async () => {
       for (const d of seed) {
@@ -136,6 +138,7 @@ export function ThreeDTab({ tabId }: Props) {
       pluginsRef.current = [];
       scene.dispose();
       sceneRef.current = null;
+      setScene(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -215,7 +218,9 @@ export function ThreeDTab({ tabId }: Props) {
           Axes
         </label>
         <div className="spacer" />
-        <button onClick={() => sceneRef.current?.resetView()}>Reset view</button>
+        <button onClick={() => sceneRef.current?.fitView()} title="Frame all content">
+          ⤢ Fit
+        </button>
         <button onClick={() => setShowProps((v) => !v)} title="Toggle properties">
           Properties ☰
         </button>
@@ -264,7 +269,10 @@ export function ThreeDTab({ tabId }: Props) {
           </div>
         )}
 
-        <div className="threed-viewport" ref={containerRef} />
+        <div className="threed-viewport-wrap">
+          <div className="threed-viewport" ref={containerRef} />
+          {scene && <ViewGizmo scene={scene} />}
+        </div>
 
         {showProps && (
           <div className="threed-props">

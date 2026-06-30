@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react';
 
 export type IconName =
+  | 'logo'
   | 'cube'
   | 'camera'
   | 'chart'
@@ -29,6 +30,17 @@ export type IconName =
   | 'newfile';
 
 const PATHS: Record<IconName, ReactNode> = {
+  // Brand mark — a robot head (antenna + screen face with two eyes): the
+  // "robot data viewer" idea at a glance. Distinct from the 3D tab's `cube`.
+  logo: (
+    <>
+      <circle cx="12" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
+      <path d="M12 4.7V8" />
+      <rect x="4.5" y="8" width="15" height="11" rx="3" />
+      <circle cx="9" cy="13.4" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="13.4" r="1.4" fill="currentColor" stroke="none" />
+    </>
+  ),
   // Tab types
   cube: (
     <>
@@ -70,10 +82,12 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   // Top bar / status
+  // Outline cogwheel (teeth + centre circle) — reads as ⚙ but stays line-style
+  // at the shared 1.75 stroke, so it matches save/folder/etc. in weight.
   gear: (
     <>
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M12 2v3M12 19v3M22 12h-3M5 12H2M19.1 4.9l-2.1 2.1M7 17l-2.1 2.1M19.1 19.1 17 17M7 7 4.9 4.9" />
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </>
   ),
   save: (

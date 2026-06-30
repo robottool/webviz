@@ -11,6 +11,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const UP_Z = new THREE.Vector3(0, 0, 1);
 
+/** Default ("home") view direction — the offset from the orbit target toward
+ * the camera, in the +Z-up robotics world (+X forward, +Y left, +Z up). */
+const HOME_DIR = new THREE.Vector3(1, -1, 0.7);
+
 /** Read a CSS custom property (set by the theme) as a THREE.Color, falling back
  * to a literal when it's unset or we're off-DOM. Lets the viewport track the
  * theme palette without duplicating colours here. */
@@ -44,6 +48,15 @@ export class SceneManager {
   private lastFrameTime = 0;
   private fixedFrame = 'odom';
 
+  // One-shot auto-fit: frame the scene the first time plugin content appears
+  // and its size settles (a robot's meshes stream in over many frames, so we
+  // wait for the bounding radius to stop growing before committing the view).
+  private autoFitArmed = true;
+  private fitStableFrames = 0;
+  private lastContentRadius = -1;
+  private readonly tmpBox = new THREE.Box3();
+  private readonly tmpSphere = new THREE.Sphere();
+
   constructor(container: HTMLElement) {
     this.container = container;
 
@@ -72,6 +85,21 @@ export class SceneManager {
     this.scene.add(this.grid);
 
     this.axes = new THREE.AxesHelper(1);
+    // AxesHelper defaults to a per-axis gradient (red→orange, green→…, blue→…);
+    // paint each axis a single solid colour instead, matching the navigation
+    // gizmo's axis colours (ui/ViewGizmo.tsx) so the two read consistently.
+    this.axes.setColors(
+      new THREE.Color('#e0566f'),
+      new THREE.Color('#7bc043'),
+      new THREE.Color('#4a9eea'),
+    );
+    // The X/Y axes lie in the grid's z=0 plane, so they z-fight and get hidden by
+    // the grid lines at some angles. Draw the origin frame on top regardless of
+    // depth so it's always visible (the conventional origin-gizmo behaviour).
+    const axesMat = this.axes.material as THREE.LineBasicMaterial;
+    axesMat.depthTest = false;
+    axesMat.depthWrite = false;
+    this.axes.renderOrder = 2;
     this.scene.add(this.axes);
 
     this.scene.add(this.root);
@@ -199,6 +227,8 @@ export class SceneManager {
 
     for (const cb of this.renderCallbacks) cb(dt);
 
+    if (this.autoFitArmed) this.tryAutoFit();
+
     const controlsActive = this.controls.update(); // returns true while damping
     if (this.dirty || controlsActive) {
       this.renderer.render(this.scene, this.camera);
@@ -211,6 +241,99 @@ export class SceneManager {
     this.controls.target.set(0, 0, 0);
     this.controls.update();
     this.requestRender();
+  }
+
+  /**
+   * Frame all plugin content (the scene root) in view from the current view
+   * direction. The grid/axes live on the scene (not the root), so they don't
+   * pad the fit. Returns false if there's nothing to frame yet.
+   */
+  fitView(): boolean {
+    return this.frameFrom(null);
+  }
+
+  /**
+   * Snap the camera to look along a world-axis direction (the offset from the
+   * target toward the camera, e.g. (0,0,1) for top-down), framing the content
+   * when there is any. Used by the corner navigation gizmo.
+   */
+  setViewDirection(dir: THREE.Vector3): void {
+    this.frameFrom(dir.clone().normalize());
+  }
+
+  /** Shared camera placement: orbit `dir` (or the current direction if null) at
+   * a distance that frames the scene root, falling back to the current target /
+   * distance when the scene is still empty (so a gizmo click works pre-load). */
+  private frameFrom(dir: THREE.Vector3 | null): boolean {
+    const box = this.tmpBox.setFromObject(this.root);
+    const hasContent = !box.isEmpty();
+
+    let center: THREE.Vector3;
+    let distance: number;
+    let radius = 0;
+    if (hasContent) {
+      const sphere = box.getBoundingSphere(this.tmpSphere);
+      center = sphere.center.clone();
+      radius = Math.max(sphere.radius, 0.05);
+      const fovV = (this.camera.fov * Math.PI) / 180;
+      const fovH = 2 * Math.atan(Math.tan(fovV / 2) * this.camera.aspect);
+      // Fit the bounding sphere to whichever fov dimension is the binding one.
+      distance = (radius / Math.sin(Math.min(fovV, fovH) / 2)) * 1.15;
+    } else {
+      center = this.controls.target.clone();
+      distance = this.camera.position.distanceTo(this.controls.target) || 9;
+    }
+
+    const d = new THREE.Vector3();
+    if (dir) d.copy(dir);
+    else {
+      d.subVectors(this.camera.position, this.controls.target);
+      if (d.lengthSq() < 1e-9) d.copy(HOME_DIR);
+    }
+    d.normalize();
+
+    this.controls.target.copy(center);
+    this.camera.position.copy(center).addScaledVector(d, distance);
+    if (radius > 0) {
+      this.camera.near = Math.max(distance / 1000, 0.001);
+      this.camera.far = distance * 4 + radius * 10;
+      this.camera.updateProjectionMatrix();
+    }
+    this.controls.update();
+    this.requestRender();
+    return hasContent;
+  }
+
+  /** Re-arm the one-shot auto-fit (e.g. a new robot is loading). */
+  armAutoFit(): void {
+    this.autoFitArmed = true;
+    this.fitStableFrames = 0;
+    this.lastContentRadius = -1;
+  }
+
+  /** While armed, watch for content to appear and stop growing, then frame it
+   * once. Cheap when the root is empty (nothing to traverse). */
+  private tryAutoFit(): void {
+    const box = this.tmpBox.setFromObject(this.root);
+    if (box.isEmpty()) {
+      this.lastContentRadius = -1;
+      this.fitStableFrames = 0;
+      return;
+    }
+    const radius = box.getBoundingSphere(this.tmpSphere).radius;
+    if (
+      this.lastContentRadius > 0 &&
+      Math.abs(radius - this.lastContentRadius) <= this.lastContentRadius * 0.02
+    ) {
+      this.fitStableFrames++;
+    } else {
+      this.fitStableFrames = 0;
+    }
+    this.lastContentRadius = radius;
+    if (this.fitStableFrames >= 20) {
+      this.fitView();
+      this.autoFitArmed = false;
+    }
   }
 
   takeScreenshot(): Promise<Blob | null> {

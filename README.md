@@ -1,7 +1,7 @@
 # WebViz
 
 Browser-based visualization platform for robots and real-time systems.
-**Protocol-first · Source-agnostic · Tabbed workspace.** See `webviz_design_doc_v3.md`.
+**Protocol-first · Source-agnostic · Tiling-panel workspace.** See `webviz_design_doc_v3.md`.
 
 ## Status: vertical slice
 

@@ -179,17 +179,21 @@ body {
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
 }
+/* Brand (robot-head mark + wordmark) — grey/silver, with a darker grey on the
+   light theme so it keeps contrast against the light top bar. */
 .brand {
   font-weight: 600;
-  color: var(--accent);
+  color: #c4cad4;
   font-family: var(--mono);
   letter-spacing: 0.01em;
+}
+[data-theme='industry'] .brand {
+  color: #5b636f;
 }
 
 /* Inline line-icons (ui/icons.tsx) want vertical centering, and icon+label rows
    a consistent gap. */
 .brand,
-.source-count,
 .statusbar > span,
 .icon-btn,
 .tab-icon {
@@ -204,19 +208,8 @@ body {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
-.statusbar,
-.conn-input {
+.statusbar {
   font-variant-numeric: tabular-nums;
-}
-.conn-input {
-  width: 280px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: var(--radius-control);
-  padding: 3px 8px;
-  font-family: var(--mono);
-  font-size: 12px;
 }
 .conn-btn,
 .tab-add,
@@ -251,14 +244,6 @@ button:disabled {
 .status-disconnected,
 .status-error {
   background: var(--red);
-}
-.status-text {
-  color: var(--text-dim);
-  font-size: 12px;
-}
-.source-count {
-  color: var(--text-dim);
-  font-size: 12px;
 }
 .icon-btn {
   cursor: pointer;
@@ -696,13 +681,25 @@ button:disabled {
   font-weight: 600;
   font-size: 12px;
 }
-.threed-viewport {
+.threed-viewport-wrap {
   flex: 1;
   min-width: 0;
   position: relative;
 }
+.threed-viewport {
+  position: absolute;
+  inset: 0;
+}
 .threed-viewport canvas {
   display: block;
+}
+/* Blender-style navigation gizmo, floating over the viewport's top-right. */
+.view-gizmo {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  cursor: pointer;
+  z-index: 2;
 }
 .display-list {
   list-style: none;
@@ -1293,9 +1290,22 @@ button:disabled {
   outline: none;
   border-color: var(--accent);
 }
+.settings-conn {
+  display: flex;
+  gap: 6px;
+}
+.settings-conn input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+}
 .settings-note {
   padding: 2px 8px 6px;
   font-size: 11px;
+}
+.settings-note .status-dot {
+  display: inline-block;
+  vertical-align: middle;
 }
 .layout-sep {
   height: 1px;

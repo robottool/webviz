@@ -1,8 +1,13 @@
-/** Top bar (§11.1): brand, connection field + status, action icons. */
+/** Top bar (§11.1): brand, connection status, action icons. The hub URL +
+ * Connect control lives in the ⚙ settings popover (SettingsMenu). */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useConnectionStore, STATUS_LABEL } from '../store/connection.store.js';
+import {
+  useConnectionStore,
+  STATUS_LABEL,
+  autoHubUrl,
+} from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
 import { useSettingsStore, type ThemeId } from '../store/settings.store.js';
 import { recorder } from '../core/recorder.js';
@@ -16,36 +21,13 @@ import {
 } from '../store/layouts.js';
 
 export function TopBar() {
-  const { status, url, channels, connect } = useConnectionStore();
-  const [draft, setDraft] = useState(url);
-
-  const sources = new Set(
-    channels.map((c) => c.source_id).filter(Boolean) as string[],
-  ).size;
-
+  // Connection status + counts live in the bottom StatusBar; the top bar is just
+  // the brand and actions.
   return (
     <div className="topbar">
       <span className="brand">
-        <Icon name="cube" size={16} />
+        <Icon name="logo" size={16} />
         WebViz
-      </span>
-      <input
-        className="conn-input"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') connect(draft);
-        }}
-        spellCheck={false}
-      />
-      <button className="conn-btn" onClick={() => connect(draft)}>
-        Connect
-      </button>
-      <span className={`status-dot status-${status}`} />
-      <span className="status-text">{STATUS_LABEL[status] ?? status}</span>
-      <span className="source-count" title="Connected sources">
-        <Icon name="broadcast" />
-        <span className="readout">{sources}</span> sources
       </span>
       <div className="spacer" />
       <SettingsMenu />
@@ -62,6 +44,7 @@ function SettingsMenu() {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const { theme, syncWindowMs, recordingCapMB, hubUrl, set, reset } =
     useSettingsStore();
+  const { status, connect } = useConnectionStore();
 
   const open = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -138,17 +121,29 @@ function SettingsMenu() {
                 />
               </label>
               <label className="settings-row settings-row-col">
-                <span>Default hub URL</span>
-                <input
-                  type="text"
-                  placeholder="auto (from page host)"
-                  value={hubUrl}
-                  spellCheck={false}
-                  onChange={(e) => set({ hubUrl: e.target.value })}
-                />
+                <span>Hub URL</span>
+                <div className="settings-conn">
+                  <input
+                    type="text"
+                    placeholder="auto (from page host)"
+                    value={hubUrl}
+                    spellCheck={false}
+                    onChange={(e) => set({ hubUrl: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') connect(hubUrl.trim() || autoHubUrl);
+                    }}
+                  />
+                  <button
+                    className="conn-btn"
+                    onClick={() => connect(hubUrl.trim() || autoHubUrl)}
+                  >
+                    Connect
+                  </button>
+                </div>
               </label>
               <div className="settings-note muted">
-                Hub URL applies on reload or next Connect.
+                <span className={`status-dot status-${status}`} />{' '}
+                {STATUS_LABEL[status] ?? status} · blank = auto ({autoHubUrl}).
               </div>
               <div className="layout-sep" />
               <div className="tab-add-item" onClick={reset}>

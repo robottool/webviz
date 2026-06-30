@@ -37,9 +37,10 @@ venv/bin/python3 sdks/python/image_demo.py          # feed the Image tab: animat
 
 The hub's asset server defaults `assetsDir` to the **repo root**, so robot descriptions are reachable at `/assets/ur_description/...` out of the box (override with `WEBVIZ_ASSETS_DIR` in production). The `RobotModel` plugin fetches URDF + meshes from `http://<host>:8080/assets`.
 
-Tests (vitest, only in `@webviz/protocol` — two files: `binary` and `frame`):
+Tests (vitest, only in `@webviz/protocol` — two files co-located in `src/`: `binary.test.ts` and `frame.test.ts`; note the C++ SDK instead uses a `test/` dir):
 ```bash
-pnpm --filter @webviz/protocol test                 # run once
+pnpm test                                            # run the whole workspace's tests (pnpm -r test; today only protocol's)
+pnpm --filter @webviz/protocol test                 # run protocol's once
 pnpm --filter @webviz/protocol test:watch           # watch
 pnpm --filter @webviz/protocol exec vitest run binary   # single test file by name (or: frame)
 ```

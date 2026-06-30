@@ -2,7 +2,7 @@
   "name": "webviz",
   "version": "0.1.0",
   "private": true,
-  "description": "Browser-based visualization platform for robots and real-time systems (protocol-first, source-agnostic, tabbed workspace).",
+  "description": "Browser-based visualization platform for robots and real-time systems (protocol-first, source-agnostic, tiling-panel workspace).",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20"

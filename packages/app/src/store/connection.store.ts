@@ -39,6 +39,10 @@ const DEFAULT_URL =
   (import.meta.env.VITE_HUB_URL as string | undefined) ??
   `ws://${hubHost}:7777?role=client`;
 
+/** The auto-derived hub URL used when no explicit URL is set (⚙ Settings blank).
+ * Exported so the settings "Connect" control can target it. */
+export const autoHubUrl = DEFAULT_URL;
+
 // A persisted hub URL (⚙ settings) wins over the auto-derived default.
 const INITIAL_URL = persistedHubUrl() || DEFAULT_URL;
 
