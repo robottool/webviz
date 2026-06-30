@@ -22,6 +22,11 @@
   --yellow: #fbbf24;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
+  /* Two radii instead of the old 2–10px sprawl: tight for controls, softer for
+     surfaces (menus, modals, cards). */
+  --radius-control: 5px;
+  --radius-surface: 8px;
+
   /* Theme effect knobs (consumed by the "Theme polish" section at the bottom).
      Set to `none`/flat in the minimal theme to flatten the effects back out. */
   --app-bg: radial-gradient(135% 130% at 50% -10%, #131c29 0%, #070a0f 62%);
@@ -103,34 +108,37 @@
    variable-driven surfaces — note the raised order (bg deepest → bg-3 white)
    and the dark-on-light overlays (--surface-hi, --accent-ink → white). */
 [data-theme='industry'] {
-  --bg: #e8ebef; /* deepest: app frame / inset wells */
-  --bg-2: #f3f5f8; /* panels, top/tab bars */
-  --bg-3: #ffffff; /* raised: inputs, buttons, cards */
-  --border: #ccd2da;
-  --text: #1f2733;
-  --text-dim: #5d6675;
-  --accent: #0c7fd6;
-  --accent-2: #1a9bd7;
+  /* Muted engineering greys (calibrated against Visual Components' desktop —
+     soft neutral grey, not glaring white). Raised surfaces are off-white, not
+     pure #fff, so the chrome stays calm. */
+  --bg: #c9ced5; /* deepest: app frame / inset wells */
+  --bg-2: #dbdfe5; /* panels, top/tab bars */
+  --bg-3: #eceef1; /* raised: inputs, buttons, cards */
+  --border: #b0b8c2;
+  --text: #232b34;
+  --text-dim: #5b6573;
+  --accent: #1572b6;
+  --accent-2: #2a8fce;
   --accent-ink: #ffffff; /* white text on the blue accent */
-  --green: #1ba672;
-  --red: #d6453d;
-  --yellow: #c47f0a;
-  --app-bg: linear-gradient(180deg, #f7f9fb 0%, #e6eaef 100%);
-  --surface-hi: rgba(0, 0, 0, 0.045); /* hover darkens on light */
+  --green: #1f8f63;
+  --red: #c34a40;
+  --yellow: #b07a16;
+  --app-bg: linear-gradient(180deg, #d7dbe1 0%, #c4c9d0 100%);
+  --surface-hi: rgba(0, 0, 0, 0.05); /* hover darkens on light */
   --glow-accent: none;
   --glow-live: none;
   --accent-fill: var(--accent);
-  --scroll-thumb: #c4cbd4;
-  --scroll-thumb-hover: #a7b0bd;
-  --viewport-bg: #eef1f5; /* soft light-grey viewport */
-  --grid-major: #b4bdc8; /* darker major lines read on light */
-  --grid-minor: #d3dae1;
-  --c-3d: #0c7fd6;
-  --c-image: #7c5cd6;
-  --c-plot: #1ba672;
-  --c-map: #0d9aa6;
-  --c-inspector: #5d6675;
-  --c-log: #c47f0a;
+  --scroll-thumb: #aeb6c1;
+  --scroll-thumb-hover: #97a1ad;
+  --viewport-bg: #cfd3d8; /* calm neutral grey, like the VC floor/horizon */
+  --grid-major: #aab2bc;
+  --grid-minor: #c0c6ce;
+  --c-3d: #1572b6;
+  --c-image: #6f55c2;
+  --c-plot: #1f8f63;
+  --c-map: #0e8c97;
+  --c-inspector: #5b6573;
+  --c-log: #b07a16;
 }
 
 * {
@@ -174,13 +182,38 @@ body {
 .brand {
   font-weight: 600;
   color: var(--accent);
+  font-family: var(--mono);
+  letter-spacing: 0.01em;
+}
+
+/* Inline line-icons (ui/icons.tsx) want vertical centering, and icon+label rows
+   a consistent gap. */
+.brand,
+.source-count,
+.statusbar > span,
+.icon-btn,
+.tab-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Live numeric readouts: monospace + tabular figures so digits don't reflow as
+   values tick (Hz, counts, clock, joint values). */
+.readout {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.statusbar,
+.conn-input {
+  font-variant-numeric: tabular-nums;
 }
 .conn-input {
   width: 280px;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   padding: 3px 8px;
   font-family: var(--mono);
   font-size: 12px;
@@ -191,7 +224,7 @@ button {
   background: var(--bg-3);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   padding: 3px 10px;
   cursor: pointer;
   font-size: 12px;
@@ -233,6 +266,9 @@ button:disabled {
 }
 .icon-btn:hover {
   opacity: 1;
+}
+.icon-btn-rec {
+  color: var(--red);
 }
 
 /* --- Tab bar --- */
@@ -283,7 +319,7 @@ button:disabled {
   z-index: 1001;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-surface);
   min-width: 150px;
   padding: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -293,7 +329,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .tab-add-item:hover {
@@ -314,26 +350,23 @@ button:disabled {
   display: flex;
   overflow: hidden;
   background: var(--bg);
+  position: relative; /* anchor for the maximized pane overlay */
 }
-.split-branch {
-  flex: 1;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-}
-.split-child {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
+/* Each pane is absolutely positioned by WorkspaceView (rect from the split
+   tree), so it keeps a stable place in the React tree across splits/closes. */
+.split-pane-host {
+  position: absolute;
   overflow: hidden;
 }
 .split-pane {
-  flex: 1;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg);
 }
 .split-pane-focused {
   outline: 1px solid var(--accent);
@@ -353,7 +386,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 11px;
   padding: 1px 4px;
   max-width: 200px;
@@ -362,7 +395,7 @@ button:disabled {
   background: transparent;
   color: var(--text-dim);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   width: 18px;
   height: 18px;
   cursor: pointer;
@@ -380,7 +413,7 @@ button:disabled {
   background: transparent;
   color: var(--text-dim);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   width: 18px;
   height: 18px;
   cursor: pointer;
@@ -405,10 +438,48 @@ button:disabled {
   color: var(--text-dim);
   font-size: 13px;
 }
+
+/* Empty-pane content picker. */
+.panel-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 16px;
+}
+.panel-picker-title {
+  color: var(--text-dim);
+}
+.panel-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.panel-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 92px;
+  padding: 12px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  color: var(--text-dim);
+}
+.panel-picker-item:hover {
+  color: var(--text);
+  border-color: var(--tab-accent, var(--accent));
+}
+.panel-picker-item svg {
+  color: var(--tab-accent, var(--accent));
+}
 .split-divider {
-  flex: 0 0 6px;
+  position: absolute;
   background: var(--border);
-  z-index: 1;
+  z-index: 2;
 }
 .split-divider-col {
   cursor: col-resize;
@@ -428,7 +499,7 @@ button:disabled {
   background: var(--bg-2);
   color: var(--text-dim);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   width: 26px;
   height: 24px;
   cursor: pointer;
@@ -456,7 +527,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   width: 30px;
   height: 22px;
   cursor: pointer;
@@ -481,7 +552,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 2px 4px;
   font-size: 11px;
 }
@@ -534,7 +605,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   padding: 3px 8px;
   font-size: 12px;
   min-width: 220px;
@@ -542,7 +613,7 @@ button:disabled {
 .badge {
   background: var(--bg-3);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   padding: 2px 8px;
   font-size: 11px;
   color: var(--text-dim);
@@ -586,7 +657,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   padding: 2px 6px;
   font-size: 12px;
 }
@@ -644,7 +715,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   padding: 5px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-size: 12px;
 }
@@ -694,13 +765,17 @@ button:disabled {
   width: 120px;
 }
 
-/* RobotModel custom properties */
+/* Eyebrow label — a small uppercase section header. Shared by .props-section and
+   reusable as a bare `.eyebrow` on any panel header. */
+.eyebrow,
 .props-section {
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-dim);
+}
+.props-section {
   margin: 12px 0 6px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 3px;
@@ -734,7 +809,7 @@ button:disabled {
   padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
 }
 .report-ok {
   color: var(--green);
@@ -810,7 +885,7 @@ button:disabled {
   flex-direction: column;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
 }
 .modal-head {
@@ -833,7 +908,7 @@ button:disabled {
   font-family: var(--mono);
   background: var(--bg);
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
 }
 .missing-list {
   max-height: 160px;
@@ -841,7 +916,7 @@ button:disabled {
   padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   font-family: var(--mono);
   font-size: 11px;
   color: var(--yellow);
@@ -890,7 +965,7 @@ button:disabled {
   text-align: center;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   padding: 28px;
 }
 .placeholder-card h2 {
@@ -1003,7 +1078,7 @@ button:disabled {
   padding: 2px 6px;
   background: var(--bg-3);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 12px;
   font-family: var(--mono);
 }
@@ -1163,7 +1238,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: rgba(248, 113, 113, 0.12);
   color: var(--red);
   font-family: var(--mono);
@@ -1206,7 +1281,7 @@ button:disabled {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 3px 6px;
   font-size: 12px;
 }
@@ -1348,7 +1423,7 @@ button:disabled {
   padding: 10px 12px;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-surface);
   color: var(--text);
   font-family: var(--mono);
   font-size: 12px;
@@ -1360,7 +1435,7 @@ button:disabled {
   border: 1px solid var(--border);
   color: var(--text);
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-surface);
   cursor: pointer;
 }
 
@@ -1409,7 +1484,7 @@ select {
 }
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -1445,24 +1520,28 @@ select {
     0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-/* Per-tab-type accent colour (keyed off data-tabtype set in TabBar). */
-.tab[data-tabtype='3d'] {
+/* Per-panel-type accent colour (keyed off data-tabtype on the pane / picker). */
+[data-tabtype='3d'] {
   --tab-accent: var(--c-3d);
 }
-.tab[data-tabtype='image'] {
+[data-tabtype='image'] {
   --tab-accent: var(--c-image);
 }
-.tab[data-tabtype='plot'] {
+[data-tabtype='plot'] {
   --tab-accent: var(--c-plot);
 }
-.tab[data-tabtype='map'] {
+[data-tabtype='map'] {
   --tab-accent: var(--c-map);
 }
-.tab[data-tabtype='inspector'] {
+[data-tabtype='inspector'] {
   --tab-accent: var(--c-inspector);
 }
-.tab[data-tabtype='log'] {
+[data-tabtype='log'] {
   --tab-accent: var(--c-log);
+}
+/* A thin type-coloured rule along the top of each pane header. */
+.split-pane[data-tabtype] .split-pane-header {
+  box-shadow: inset 0 2px 0 var(--tab-accent, transparent);
 }
 .tab .tab-icon {
   color: var(--tab-accent, var(--accent));
@@ -1509,7 +1588,26 @@ select {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 3px 6px;
   font-size: 12px;
+}
+
+/* --- Accessibility floor --- */
+/* Visible keyboard focus (the app leans on click; this is the keyboard path). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-control);
+}
+/* Honour reduced-motion: neutralize the few transitions/animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }

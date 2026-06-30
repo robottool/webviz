@@ -1,18 +1,22 @@
 /**
- * Tab store (§9.2). Manages the set of tabs and which one is active, plus the
- * workspace **split layout** — a recursive binary tree of panes. Each tab is an
- * independent workspace; the split tree is a view onto that set (leaves bind to
- * existing tab ids, they don't own tabs).
+ * Workspace store (§9.2). The workspace is a **tiling layout of panels** — a
+ * recursive binary tree of panes (no tab bar / no tab switching). Each leaf pane
+ * owns one panel instance (a `TabConfig`: its type + persisted settings); you
+ * add panels by splitting a pane and picking content, remove them by closing the
+ * pane, and focus one with maximize. "Switch between whole setups" is handled by
+ * named layouts (store/layouts.ts), not per-panel tabs.
  *
- * A node is either a `leaf` (one pane showing one tab) or a `split` of two
- * children laid out `row` (left|right) or `col` (top/bottom) with a divider at
- * `frac`. `single` mode is just a lone leaf root. Splitting replaces a leaf with
- * a split of [old leaf, new leaf]; closing a leaf replaces its parent split with
- * the surviving sibling, so the twin fills the freed space.
+ * A node is either a `leaf` (one pane; `tabId` = the panel it owns, or null when
+ * empty/awaiting a pick) or a `split` of two children laid out `row` (left|right)
+ * or `col` (top/bottom) with a divider at `frac`. Splitting replaces a leaf with
+ * a split of [old leaf, new empty leaf]; closing a leaf replaces its parent split
+ * with the surviving sibling. The `tabs` array is the live panel pool — each
+ * entry is owned by exactly one leaf, and orphans are garbage-collected.
  */
 
 import { create } from 'zustand';
 import { uuid } from '../core/uuid.js';
+import type { IconName } from '../ui/icons.js';
 
 export type TabType = '3d' | 'image' | 'plot' | 'map' | 'inspector' | 'log';
 
@@ -48,34 +52,34 @@ export interface SplitState {
   root: SplitNode;
   /** Leaf id that splits land in / that the focus outline marks. */
   focusedLeaf: string;
+  /** Leaf id rendered full-bleed over its siblings, or null. */
+  maximized: string | null;
 }
 
 interface TabStore {
+  /** Live panel instances, each owned by exactly one leaf in `split`. */
   tabs: TabConfig[];
-  activeTabId: string;
   split: SplitState;
-  addTab: (type: TabType) => void;
-  closeTab: (id: string) => void;
-  renameTab: (id: string, name: string) => void;
-  pinTab: (id: string, pinned: boolean) => void;
-  activateTab: (id: string) => void;
-  duplicateTab: (id: string) => void;
   updateSettings: (id: string, patch: Record<string, unknown>) => void;
   newWorkspace: () => void;
   splitPane: (leafId: string, dir: SplitDir) => void;
   closePane: (leafId: string) => void;
-  assignPane: (leafId: string, tabId: string | null) => void;
+  /** Set (or replace) the panel a pane shows — the "pick content" action. */
+  setPaneType: (leafId: string, type: TabType) => void;
   setSplitFrac: (branchId: string, frac: number) => void;
   focusPane: (leafId: string) => void;
+  toggleMaximize: (leafId: string) => void;
 }
 
-export const TAB_META: Record<TabType, { label: string; icon: string }> = {
-  '3d': { label: '3D view', icon: '⬡' },
-  image: { label: 'Cameras', icon: '🎞' },
-  plot: { label: 'Plot', icon: '📈' },
-  map: { label: 'Map', icon: '🗺' },
-  inspector: { label: 'Inspector', icon: '🔍' },
-  log: { label: 'Log', icon: '📋' },
+// `icon` is a semantic key into the line-icon set (ui/icons.tsx), not a glyph —
+// the UI maps it to an <Icon/> so colours follow the theme.
+export const TAB_META: Record<TabType, { label: string; icon: IconName }> = {
+  '3d': { label: '3D view', icon: 'cube' },
+  image: { label: 'Cameras', icon: 'camera' },
+  plot: { label: 'Plot', icon: 'chart' },
+  map: { label: 'Map', icon: 'map' },
+  inspector: { label: 'Inspector', icon: 'search' },
+  log: { label: 'Log', icon: 'list' },
 };
 
 const clampFrac = (v: number) => Math.min(0.85, Math.max(0.15, v));
@@ -149,23 +153,26 @@ function setFracNode(node: SplitNode, branchId: string, frac: number): SplitNode
   };
 }
 
-function defaultSplit(tabId: string): SplitState {
-  const leaf = makeLeaf(tabId);
-  return { root: leaf, focusedLeaf: leaf.id };
+/** A fresh workspace: one empty pane (awaiting a panel pick). */
+function emptyWorkspace(): Pick<TabStore, 'tabs' | 'split'> {
+  const leaf = makeLeaf(null);
+  return { tabs: [], split: { root: leaf, focusedLeaf: leaf.id, maximized: null } };
 }
 
-/** A tab id currently shown in no pane (for seeding a fresh split), or fallback. */
-function unusedTab(
-  root: SplitNode,
-  tabs: TabConfig[],
-  fallback: string,
-): string {
-  const shown = new Set(
+/** The set of panel ids currently owned by some pane. */
+function ownedTabIds(root: SplitNode): Set<string> {
+  return new Set(
     leafIds(root)
       .map((id) => findLeaf(root, id)?.tabId)
       .filter(Boolean) as string[],
   );
-  return tabs.find((t) => !shown.has(t.id))?.id ?? fallback;
+}
+
+/** Drop panel instances no pane owns any more (e.g. after a pane closed or its
+ * type changed) so the pool can't accumulate orphans. */
+export function gcPanels(tabs: TabConfig[], root: SplitNode): TabConfig[] {
+  const used = ownedTabIds(root);
+  return tabs.filter((t) => used.has(t.id));
 }
 
 function findLeaf(node: SplitNode, id: string): LeafNode | null {
@@ -178,13 +185,10 @@ function findLeaf(node: SplitNode, id: string): LeafNode | null {
 // through the hub in store/layouts.ts; this is just the local working copy.)
 const LS_KEY = 'webviz.workspace';
 
-/** Validate a persisted/loaded split against the current tabs (drop stale ids,
- *  clamp fracs, regen missing node ids). Unknown shapes → single mode. */
-export function sanitizeSplit(
-  raw: unknown,
-  tabs: TabConfig[],
-  activeTabId: string,
-): SplitState {
+/** Validate a persisted/loaded split against the panel pool (drop stale ids,
+ *  clamp fracs, regen missing node ids). Unknown shapes → one pane showing the
+ *  first panel (or an empty pane when there are none). */
+export function sanitizeSplit(raw: unknown, tabs: TabConfig[]): SplitState {
   const valid = new Set(tabs.map((t) => t.id));
   interface RawNode {
     type?: string;
@@ -221,123 +225,43 @@ export function sanitizeSplit(
     }
     return null;
   };
-  const root =
+  const cleaned =
     raw && typeof raw === 'object'
       ? clean((raw as { root?: unknown }).root)
       : null;
-  if (!root) return defaultSplit(activeTabId);
+  // No usable tree → a single pane bound to the first panel (or empty).
+  const root = cleaned ?? makeLeaf(tabs[0]?.id ?? null);
   const ids = leafIds(root);
-  const wanted = (raw as { focusedLeaf?: string }).focusedLeaf;
+  const wanted = (raw as { focusedLeaf?: string })?.focusedLeaf;
   const focusedLeaf = wanted && ids.includes(wanted) ? wanted : ids[0];
-  return { root, focusedLeaf };
+  const wantedMax = (raw as { maximized?: unknown })?.maximized;
+  const maximized =
+    typeof wantedMax === 'string' && ids.includes(wantedMax) ? wantedMax : null;
+  return { root, focusedLeaf, maximized };
 }
 
-function loadInitial(): Pick<TabStore, 'tabs' | 'activeTabId' | 'split'> {
+function loadInitial(): Pick<TabStore, 'tabs' | 'split'> {
   try {
     const raw = typeof localStorage !== 'undefined' && localStorage.getItem(LS_KEY);
     if (raw) {
-      const cfg = JSON.parse(raw) as {
-        tabs?: TabConfig[];
-        activeTabId?: string;
-        split?: unknown;
-      };
-      if (Array.isArray(cfg.tabs) && cfg.tabs.length > 0) {
-        const activeTabId = cfg.tabs.some((t) => t.id === cfg.activeTabId)
-          ? (cfg.activeTabId as string)
-          : cfg.tabs[0].id;
-        return {
-          tabs: cfg.tabs,
-          activeTabId,
-          split: sanitizeSplit(cfg.split, cfg.tabs, activeTabId),
-        };
-      }
+      const cfg = JSON.parse(raw) as { tabs?: TabConfig[]; split?: unknown };
+      const pool = Array.isArray(cfg.tabs) ? cfg.tabs : [];
+      const split = sanitizeSplit(cfg.split, pool);
+      // Migration: pre-pivot layouts had a tab *pool* larger than the panes
+      // (background tabs). gc keeps only panels a pane still owns.
+      return { tabs: gcPanels(pool, split.root), split };
     }
   } catch {
     /* corrupt/unavailable storage → fall back to a fresh workspace */
   }
-  const first = makeTab('inspector');
-  return { tabs: [first], activeTabId: first.id, split: defaultSplit(first.id) };
+  return emptyWorkspace();
 }
 
 const initial = loadInitial();
 
 export const useTabStore = create<TabStore>((set) => ({
   tabs: initial.tabs,
-  activeTabId: initial.activeTabId,
   split: initial.split,
-
-  addTab: (type) =>
-    set((s) => {
-      const tab = makeTab(type);
-      // Drop the new tab into the focused pane so it's immediately visible.
-      const root = mapLeaves(s.split.root, (l) =>
-        l.id === s.split.focusedLeaf ? { ...l, tabId: tab.id } : l,
-      );
-      return {
-        tabs: [...s.tabs, tab],
-        activeTabId: tab.id,
-        split: { ...s.split, root },
-      };
-    }),
-
-  closeTab: (id) =>
-    set((s) => {
-      const tab = s.tabs.find((t) => t.id === id);
-      if (!tab || tab.pinned) return s;
-      const idx = s.tabs.findIndex((t) => t.id === id);
-      const tabs = s.tabs.filter((t) => t.id !== id);
-      if (tabs.length === 0) {
-        const replacement = makeTab('inspector');
-        return {
-          tabs: [replacement],
-          activeTabId: replacement.id,
-          split: defaultSplit(replacement.id),
-        };
-      }
-      let activeTabId = s.activeTabId;
-      if (activeTabId === id) activeTabId = tabs[Math.max(0, idx - 1)].id;
-      // Empty out any pane that was showing the closed tab.
-      const root = mapLeaves(s.split.root, (l) =>
-        l.tabId === id ? { ...l, tabId: null } : l,
-      );
-      return { tabs, activeTabId, split: { ...s.split, root } };
-    }),
-
-  renameTab: (id, name) =>
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, name } : t)),
-    })),
-
-  pinTab: (id, pinned) =>
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, pinned } : t)),
-    })),
-
-  // Show the tab in the focused pane (in single mode that's the whole view).
-  activateTab: (id) =>
-    set((s) => {
-      const root = mapLeaves(s.split.root, (l) =>
-        l.id === s.split.focusedLeaf ? { ...l, tabId: id } : l,
-      );
-      return { activeTabId: id, split: { ...s.split, root } };
-    }),
-
-  duplicateTab: (id) =>
-    set((s) => {
-      const src = s.tabs.find((t) => t.id === id);
-      if (!src) return s;
-      const copy: TabConfig = {
-        ...src,
-        id: uuid(),
-        name: `${src.name} copy`,
-        pinned: false,
-        settings: { ...src.settings },
-      };
-      const idx = s.tabs.findIndex((t) => t.id === id);
-      const tabs = [...s.tabs];
-      tabs.splice(idx + 1, 0, copy);
-      return { tabs, activeTabId: copy.id };
-    }),
 
   updateSettings: (id, patch) =>
     set((s) => ({
@@ -346,51 +270,45 @@ export const useTabStore = create<TabStore>((set) => ({
       ),
     })),
 
-  // Reset to a clean slate (one fresh Inspector tab).
-  newWorkspace: () =>
-    set(() => {
-      const first = makeTab('inspector');
-      return {
-        tabs: [first],
-        activeTabId: first.id,
-        split: defaultSplit(first.id),
-      };
-    }),
+  // Reset to a clean slate (one empty pane).
+  newWorkspace: () => set(() => emptyWorkspace()),
 
+  // Split a pane: the new sibling starts empty (the user picks its panel).
   splitPane: (leafId, dir) =>
     set((s) => {
-      const seed = unusedTab(s.split.root, s.tabs, s.activeTabId);
-      const fresh = makeLeaf(seed);
+      const fresh = makeLeaf(null);
       const root = splitLeafNode(s.split.root, leafId, dir, fresh);
-      return { split: { root, focusedLeaf: fresh.id } };
+      return { split: { root, focusedLeaf: fresh.id, maximized: null } };
     }),
 
-  // Remove a pane; the sibling subtree fills the freed space. Closing the last
-  // pane is a no-op (there's always at least one).
+  // Remove a pane; its sibling fills the freed space and its panel is GC'd.
+  // Closing the only pane clears it back to a single empty pane.
   closePane: (leafId) =>
     set((s) => {
-      const root = removeLeafNode(s.split.root, leafId);
-      if (!root) return s;
+      const root = removeLeafNode(s.split.root, leafId) ?? makeLeaf(null);
       const ids = leafIds(root);
       const focusedLeaf = ids.includes(s.split.focusedLeaf)
         ? s.split.focusedLeaf
         : ids[0];
-      // If we've collapsed back to one pane, sync the active tab to it.
-      const activeTabId =
-        root.type === 'leaf' && root.tabId ? root.tabId : s.activeTabId;
-      return { activeTabId, split: { root, focusedLeaf } };
+      const maximized =
+        s.split.maximized && ids.includes(s.split.maximized)
+          ? s.split.maximized
+          : null;
+      return { tabs: gcPanels(s.tabs, root), split: { root, focusedLeaf, maximized } };
     }),
 
-  assignPane: (leafId, tabId) =>
-    set((s) => ({
-      split: {
-        ...s.split,
-        root: mapLeaves(s.split.root, (l) =>
-          l.id === leafId ? { ...l, tabId } : l,
-        ),
-        focusedLeaf: leafId,
-      },
-    })),
+  setPaneType: (leafId, type) =>
+    set((s) => {
+      const tab = makeTab(type);
+      const root = mapLeaves(s.split.root, (l) =>
+        l.id === leafId ? { ...l, tabId: tab.id } : l,
+      );
+      // gc drops the panel this pane used to own (now replaced).
+      return {
+        tabs: gcPanels([...s.tabs, tab], root),
+        split: { ...s.split, root, focusedLeaf: leafId },
+      };
+    }),
 
   setSplitFrac: (branchId, frac) =>
     set((s) => ({
@@ -402,6 +320,15 @@ export const useTabStore = create<TabStore>((set) => ({
 
   focusPane: (leafId) =>
     set((s) => ({ split: { ...s.split, focusedLeaf: leafId } })),
+
+  toggleMaximize: (leafId) =>
+    set((s) => ({
+      split: {
+        ...s.split,
+        maximized: s.split.maximized === leafId ? null : leafId,
+        focusedLeaf: leafId,
+      },
+    })),
 }));
 
 // Persist the workspace on change (debounced — settings can update rapidly).
@@ -412,12 +339,7 @@ useTabStore.subscribe((s) => {
     try {
       localStorage.setItem(
         LS_KEY,
-        JSON.stringify({
-          version: '1',
-          tabs: s.tabs,
-          activeTabId: s.activeTabId,
-          split: s.split,
-        }),
+        JSON.stringify({ version: '2', tabs: s.tabs, split: s.split }),
       );
     } catch {
       /* storage full/unavailable — non-fatal */

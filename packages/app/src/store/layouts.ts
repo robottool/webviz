@@ -15,6 +15,7 @@
 import {
   useTabStore,
   sanitizeSplit,
+  gcPanels,
   type TabConfig,
   type SplitState,
 } from './tabs.store.js';
@@ -23,26 +24,26 @@ import { useConnectionStore } from './connection.store.js';
 export interface WorkspaceConfig {
   version: string;
   tabs: TabConfig[];
-  activeTabId: string;
+  /** Pre-pivot layouts also carried `activeTabId`; ignored on load now. */
+  activeTabId?: string;
   split?: SplitState;
   connection?: { url: string };
 }
 
 export function serializeWorkspace(): WorkspaceConfig {
-  const { tabs, activeTabId, split } = useTabStore.getState();
+  const { tabs, split } = useTabStore.getState();
   const { url } = useConnectionStore.getState();
-  return { version: '1', tabs, activeTabId, split, connection: { url } };
+  return { version: '2', tabs, split, connection: { url } };
 }
 
-/** Replace the live workspace with a saved one. Returns false if it's empty. */
+/** Replace the live workspace with a saved one. Returns false if unusable. */
 export function applyWorkspace(cfg: WorkspaceConfig | null | undefined): boolean {
-  if (!cfg || !Array.isArray(cfg.tabs) || cfg.tabs.length === 0) return false;
-  const activeTabId = cfg.tabs.some((t) => t.id === cfg.activeTabId)
-    ? cfg.activeTabId
-    : cfg.tabs[0].id;
-  // Old layouts predate split → sanitizeSplit defaults them to single mode.
-  const split = sanitizeSplit(cfg.split, cfg.tabs, activeTabId);
-  useTabStore.setState({ tabs: cfg.tabs, activeTabId, split });
+  if (!cfg || typeof cfg !== 'object') return false;
+  const pool = Array.isArray(cfg.tabs) ? cfg.tabs : [];
+  // Old layouts predate split → sanitizeSplit defaults to a single pane; gc
+  // drops any panels no pane owns (pre-pivot background tabs).
+  const split = sanitizeSplit(cfg.split, pool);
+  useTabStore.setState({ tabs: gcPanels(pool, split.root), split });
   return true;
 }
 

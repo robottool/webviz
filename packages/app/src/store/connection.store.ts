@@ -9,6 +9,15 @@ import type { ChannelInfo } from '@webviz/protocol';
 import { hubClient, type ConnectionStatus } from '../protocol/HubClient.js';
 import { persistedHubUrl } from './settings.store.js';
 
+/** Human label for each connection status — one wording shared by the top bar
+ * and status bar so the same state always reads the same. */
+export const STATUS_LABEL: Record<ConnectionStatus, string> = {
+  connecting: 'connecting…',
+  connected: 'connected',
+  disconnected: 'disconnected',
+  error: 'error',
+};
+
 interface ConnectionState {
   status: ConnectionStatus;
   url: string;

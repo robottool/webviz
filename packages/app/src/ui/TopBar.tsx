@@ -2,24 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useConnectionStore } from '../store/connection.store.js';
+import { useConnectionStore, STATUS_LABEL } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
 import { useSettingsStore, type ThemeId } from '../store/settings.store.js';
 import { recorder } from '../core/recorder.js';
 import { player } from '../core/player.js';
+import { Icon } from './icons.js';
 import {
   deleteLayout,
   listLayouts,
   loadLayout,
   saveLayout,
 } from '../store/layouts.js';
-
-const STATUS_LABEL: Record<string, string> = {
-  connecting: 'connecting…',
-  connected: 'connected',
-  disconnected: 'disconnected',
-  error: 'error',
-};
 
 export function TopBar() {
   const { status, url, channels, connect } = useConnectionStore();
@@ -31,7 +25,10 @@ export function TopBar() {
 
   return (
     <div className="topbar">
-      <span className="brand">⬡ WebViz</span>
+      <span className="brand">
+        <Icon name="cube" size={16} />
+        WebViz
+      </span>
       <input
         className="conn-input"
         value={draft}
@@ -46,7 +43,10 @@ export function TopBar() {
       </button>
       <span className={`status-dot status-${status}`} />
       <span className="status-text">{STATUS_LABEL[status] ?? status}</span>
-      <span className="source-count">● {sources} sources</span>
+      <span className="source-count" title="Connected sources">
+        <Icon name="broadcast" />
+        <span className="readout">{sources}</span> sources
+      </span>
       <div className="spacer" />
       <SettingsMenu />
       <LayoutMenu />
@@ -89,7 +89,7 @@ function SettingsMenu() {
         title="Settings"
         onClick={() => (pos ? close() : open())}
       >
-        ⚙
+        <Icon name="gear" size={16} />
       </span>
       {pos &&
         createPortal(
@@ -185,7 +185,7 @@ function LoadRecordingButton() {
         title="Load recording (.wvrec)"
         onClick={() => inputRef.current?.click()}
       >
-        📂
+        <Icon name="folder" size={16} />
       </span>
       <input
         ref={inputRef}
@@ -253,8 +253,12 @@ function RecordButton() {
 
   if (!active) {
     return (
-      <span className="icon-btn" title="Record session" onClick={toggle}>
-        ⏺
+      <span
+        className="icon-btn icon-btn-rec"
+        title="Record session"
+        onClick={toggle}
+      >
+        <Icon name="record" size={14} />
       </span>
     );
   }
@@ -349,7 +353,7 @@ function LayoutMenu() {
         title="Layouts"
         onClick={() => (pos ? close() : open())}
       >
-        💾
+        <Icon name="save" size={16} />
       </span>
       {pos &&
         createPortal(
@@ -360,10 +364,10 @@ function LayoutMenu() {
               style={{ top: pos.top, left: pos.left }}
             >
               <div className="tab-add-item" onClick={onNew}>
-                ✨ New (fresh) layout
+                <Icon name="newfile" /> New (fresh) layout
               </div>
               <div className="tab-add-item" onClick={onSave}>
-                💾 Save current layout…
+                <Icon name="save" /> Save current layout…
               </div>
               <div className="layout-sep" />
               {error && <div className="layout-msg muted">{error}</div>}

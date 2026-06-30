@@ -1,11 +1,10 @@
 /**
- * App shell (§11.1): top bar, tab bar, active tab content, status bar. Connects
- * to the hub on mount. All tabs share the single HubClient connection.
+ * App shell (§11.1): top bar, the tiling panel workspace, transport + status
+ * bars. Connects to the hub on mount. All panels share the one HubClient.
  */
 
 import { useEffect } from 'react';
 import { TopBar } from './ui/TopBar.js';
-import { TabBar } from './ui/TabBar.js';
 import { StatusBar } from './ui/StatusBar.js';
 import { PlaybackBar } from './ui/PlaybackBar.js';
 import { WorkspaceView } from './ui/WorkspaceView.js';
@@ -24,7 +23,6 @@ export function App() {
   return (
     <div className="app">
       <TopBar />
-      <TabBar />
       <WorkspaceView />
       <PlaybackBar />
       <StatusBar />

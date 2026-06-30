@@ -408,7 +408,7 @@ function PlotPanel({
             <span className="plot-legend-item" key={seriesKey(s)}>
               <span className="plot-swatch" style={{ background: COLORS[i % COLORS.length] }} />
               {s.channel}/{s.field}
-              <span className="muted"> · {(r?.hz ?? 0).toFixed(0)} Hz · {n} pts</span>
+              <span className="muted readout"> · {(r?.hz ?? 0).toFixed(0)} Hz · {n} pts</span>
             </span>
           );
         })}
