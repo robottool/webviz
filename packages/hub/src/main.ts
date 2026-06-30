@@ -19,8 +19,8 @@ const broker = new Broker({ port: WS_PORT });
 const httpServer = createAssetServer({
   broker,
   webDir: process.env.WEBVIZ_WEB_DIR ?? path.join(repoRoot, 'packages/app/dist'),
-  // Defaults to the repo root so robot description assets (e.g. ur_description/)
-  // are reachable at /assets/<dir>/... out of the box; override in production.
+  // Defaults to the repo root so any bundled assets are reachable at
+  // /assets/<dir>/... out of the box; override in production.
   assetsDir: process.env.WEBVIZ_ASSETS_DIR ?? repoRoot,
   dataDir: process.env.WEBVIZ_DATA_DIR ?? path.join(repoRoot, 'data/layouts'),
   allowedOrigins: process.env.ALLOWED_ORIGINS,

@@ -156,7 +156,13 @@ def frames(t: float) -> list[tuple[str, str, dict]]:
         },
         "scale": [1.0, 1.0, 1.0],
         "color": [0.0, 0.0, 0.0, 0.0],
-        "mesh_url": "package://ur_description/meshes/ur10/visual/base.dae",
+        # Absolute CORS-enabled URL — the browser fetches it directly (the marker
+        # plugin passes absolute http(s) mesh URLs through unchanged), so no local
+        # hub assets are required.
+        "mesh_url": (
+            "https://raw.githubusercontent.com/Gepetto/example-robot-data/master/"
+            "robots/ur_description/meshes/ur10/visual/base.dae"
+        ),
         "mesh_format": "dae",
     }
 

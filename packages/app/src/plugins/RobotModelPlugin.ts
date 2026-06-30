@@ -103,10 +103,18 @@ function normalizeMeshBase(input: string): string {
 /** Resolve a mesh ref from a URL-loaded URDF against the remote repo base.
  * `package://<pkg>/<rest>` → `<base><rest>` (the package's contents sit at the
  * repo root — the common `*_description` layout); absolute http(s) pass through;
- * bare relative refs resolve against the base. */
+ * bare relative refs resolve against the base.
+ *
+ * Note `urdf-loader` rewrites `package://<pkg>/<rest>` to `/<pkg>/<rest>` (with
+ * `packages` unset) *before* the mesh callback, so by the time we see it the
+ * `package://` scheme is already gone — we must drop that leading `/<pkg>/`
+ * segment here too, else the package name leaks into the URL (a 404). */
 function resolveRepoMeshUrl(path: string, base: string): string {
   if (/^https?:\/\//.test(path)) return path;
-  const rest = path.replace(/^package:\/\/[^/]+\//, '').replace(/^\.?\//, '');
+  let rest = path.replace(/^package:\/\/[^/]+\//, '');
+  // urdf-loader's mangled `/<pkg>/<rest>` form: drop the leading package
+  // segment; a bare relative ref (no leading slash) just loses any `./`.
+  rest = rest.startsWith('/') ? rest.replace(/^\/[^/]+\//, '') : rest.replace(/^\.?\//, '');
   return `${base}${rest}`;
 }
 
@@ -374,10 +382,13 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   private async loadFromChannel(model: RobotModel): Promise<void> {
-    this.remoteUrdfBase = null; // channel URDFs resolve via the hub asset server
     this.remoteUrdfUrl = null;
     this.remoteMeshByBasename = false;
     const url = model.urdf_url ?? '';
+    // An absolute http(s) URDF URL is an online model: resolve its `package://`
+    // mesh refs against the repo base cross-origin, the same as a URL load. A
+    // relative/hub-served URL keeps hub asset-server resolution (base null).
+    this.remoteUrdfBase = /^https?:\/\//.test(url) ? repoBaseOf(url) : null;
     if (!url || `url:${url}` === this.loadedKey) return;
     await this.loadRobot(
       () =>

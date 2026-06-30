@@ -12,8 +12,10 @@ Run the hub (`pnpm hub`) and app (`pnpm app`), then:
     python3 sdks/python/robot_demo.py
 
 Zero dependencies — POSTs to the hub's /api/inject endpoint (§6.4). The URDF and
-meshes are loaded by the browser from the hub asset server, which serves the
-repo's ur_description/ directory at /assets/ur_description/.
+meshes are loaded by the browser directly from the upstream example-robot-data
+repo over CORS (raw.githubusercontent.com), so no local assets are needed; the
+RobotModel plugin resolves the URDF's package:// mesh refs against that repo base.
+Override the source with --urdf-url (any CORS-enabled, flat/non-xacro URDF).
 """
 
 from __future__ import annotations
@@ -39,10 +41,19 @@ def quat_from_yaw(yaw: float) -> list[float]:
     return [0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)]
 
 
-def robot_model(asset_base: str) -> dict:
+# Upstream UR5 description (flat URDF + colocated .dae/.stl meshes), served over
+# CORS by raw.githubusercontent.com — the browser fetches it directly, no hub
+# assets required. The URDF's package:// mesh refs resolve against the repo base.
+DEFAULT_URDF_URL = (
+    "https://raw.githubusercontent.com/Gepetto/example-robot-data/master/"
+    "robots/ur_description/urdf/ur5_robot.urdf"
+)
+
+
+def robot_model(urdf_url: str) -> dict:
     return {
         "name": "ur5",
-        "urdf_url": f"{asset_base}/ur_description/urdf/ur5_robot.urdf",
+        "urdf_url": urdf_url,
     }
 
 
@@ -90,9 +101,9 @@ def main() -> None:
         "--http-url", default="http://localhost:8080", help="hub HTTP base URL"
     )
     parser.add_argument(
-        "--asset-base",
-        default="http://localhost:8080/assets",
-        help="base URL the browser uses to fetch URDF + meshes",
+        "--urdf-url",
+        default=DEFAULT_URDF_URL,
+        help="CORS-enabled URL the browser fetches the URDF (+ meshes) from",
     )
     parser.add_argument("--rate", type=float, default=30.0, help="publish rate (Hz)")
     args = parser.parse_args()
@@ -113,7 +124,7 @@ def main() -> None:
                         inject_url,
                         "robot_description",
                         "wv/RobotModel",
-                        robot_model(args.asset_base),
+                        robot_model(args.urdf_url),
                     )
                     last_model = now
                 inject(inject_url, "joint_states", "wv/JointState", joint_state(t))
