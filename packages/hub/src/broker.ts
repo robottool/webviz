@@ -49,6 +49,13 @@ export class Broker {
     this.wss.on('connection', (ws, req) => this.onConnection(ws, req));
   }
 
+  /** Stop accepting connections and close the WebSocket server (clean shutdown
+   * for an embedded host, e.g. the Electron desktop app). */
+  close(): void {
+    for (const c of this.conns.values()) c.ws.close();
+    this.wss.close();
+  }
+
   /** Connected client/source counts, for the status bar / REST. */
   stats() {
     let sources = 0;

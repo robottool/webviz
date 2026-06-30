@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "WebViz hub: WebSocket broker + channel registry + asset/REST server.",
   "type": "module",
+  "main": "./dist/server.js",
+  "exports": {
+    ".": "./dist/server.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "webviz-hub": "./dist/main.js"
   },

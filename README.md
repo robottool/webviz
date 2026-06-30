@@ -16,6 +16,7 @@ tabs and the full display-plugin catalogue now live:
 | `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (animated UR5), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
+| `packages/desktop` | Electron wrapper: runs the hub in-process and shows the app in a native window, packaged as a double-clickable AppImage (Linux) / installer (Windows) |
 
 ## Quick start
 
@@ -63,9 +64,10 @@ venv/bin/python3 sdks/python/image_demo.py     # animated RGB8 Image for the Ima
 Open the app, it auto-connects to `ws://localhost:7777`.
 
 - **Inspector tab**: pick a channel and watch live messages.
-- **3D tab**: add it from the `＋` menu and run `robot_demo.py` — a UR5 loads from the
-  hub asset server, drives around on the grid, and waves. Toggle displays, pick the
-  fixed frame, and edit plugin settings in the Properties panel.
+- **3D tab**: add it from the `＋` menu and run `robot_demo.py` — a UR5 loads (URDF +
+  meshes fetched online over CORS, no local assets), drives around on the grid, and
+  waves. Toggle displays, pick the fixed frame, and edit plugin settings in the
+  Properties panel.
 - **Other tabs**: Image (camera grid), Plot (live time-series), Map (2D top-down), and
   Log (event stream) — add any from the `＋` menu. Split the workspace into panes, save
   named layouts, and record a session to `.wvrec` (then load it back for playback).
@@ -74,6 +76,37 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
   per-joint sliders + a base-pose input to preview. Once your pipeline publishes
   `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
+
+## Desktop app (double-click to run)
+
+For a no-terminal, "just double-click it" experience, `packages/desktop` wraps everything in
+an Electron app: it starts the hub (WS `:7777` + HTTP `:8080`) **inside** the app process and
+opens the UI in a native window. Electron bundles its own Node, so end users need nothing
+installed — and live channels, demos, recording, and saved layouts all work (unlike the
+hub-less static build).
+
+Run it in development (builds the bundle, opens the window):
+
+```bash
+pnpm desktop
+```
+
+Package a distributable. The hub has no native dependencies, so the whole stack (hub + `ws`
++ the built app) is bundled into the app — the output is a single file to hand off:
+
+```bash
+pnpm desktop:dist          # build for the current OS → packages/desktop/release/
+pnpm desktop:dist:linux    # → WebViz-<version>.AppImage   (chmod +x, then double-click)
+pnpm desktop:dist:win      # → WebViz Setup <version>.exe   (NSIS installer)
+```
+
+Notes:
+- **Cross-building Windows from Linux needs [wine](https://www.winehq.org/)** installed
+  (electron-builder invokes it for the NSIS stage); otherwise build `:win` on a Windows
+  machine. The Linux AppImage builds anywhere.
+- On some locked-down Linux setups Electron's sandbox needs a root-owned setuid
+  `chrome-sandbox`; the AppImage handles this, but a dev `pnpm desktop` there may need
+  `--no-sandbox`.
 
 ## Tests
 

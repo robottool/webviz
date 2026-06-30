@@ -12,6 +12,11 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "hub": "pnpm --filter @webviz/hub dev",
-    "app": "pnpm --filter @webviz/app dev"
+    "app": "pnpm --filter @webviz/app dev",
+    "desktop": "pnpm --filter @webviz/desktop start",
+    "desktop:build": "pnpm --filter @webviz/protocol build && pnpm --filter @webviz/hub build && pnpm --filter @webviz/app build",
+    "desktop:dist": "pnpm run desktop:build && pnpm --filter @webviz/desktop dist",
+    "desktop:dist:linux": "pnpm run desktop:build && pnpm --filter @webviz/desktop dist:linux",
+    "desktop:dist:win": "pnpm run desktop:build && pnpm --filter @webviz/desktop dist:win"
   }
 }
