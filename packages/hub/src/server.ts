@@ -1,9 +1,9 @@
 /**
  * Programmatic hub entry point. Starts the WebSocket broker + HTTP asset/REST
- * server and returns a handle so an embedding host (the CLI in `main.ts`, or the
- * Electron desktop app) can run and later shut down the hub. Keeping the wiring
- * here — rather than at module top-level — is what lets the desktop app start
- * the hub in-process with packaged paths instead of shelling out to a CLI.
+ * server and returns a handle so an embedding host (the CLI in `main.ts`, or any
+ * in-process host) can run and later shut down the hub. Keeping the wiring here —
+ * rather than at module top-level — is what lets a host start the hub in-process
+ * with custom paths instead of shelling out to a CLI.
  */
 
 import { Broker } from './broker.js';

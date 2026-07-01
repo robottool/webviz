@@ -16,7 +16,6 @@ tabs and the full display-plugin catalogue now live:
 | `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (animated UR5), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
-| `packages/desktop` | Electron wrapper: runs the hub in-process and shows the app in a native window, packaged as a double-clickable AppImage (Linux) / installer (Windows) |
 
 ## Quick start
 
@@ -77,36 +76,18 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   per-joint sliders + a base-pose input to preview. Once your pipeline publishes
   `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
 
-## Desktop app (double-click to run)
+## Build all packages
 
-For a no-terminal, "just double-click it" experience, `packages/desktop` wraps everything in
-an Electron app: it starts the hub (WS `:7777` + HTTP `:8080`) **inside** the app process and
-opens the UI in a native window. Electron bundles its own Node, so end users need nothing
-installed — and live channels, demos, recording, and saved layouts all work (unlike the
-hub-less static build).
-
-Run it in development (builds the bundle, opens the window):
+The dev flow above never needs a full build — the hub runs under `tsx watch` and the app
+under Vite, so only the protocol package must be pre-built. To build every package (e.g. for
+typechecking or a production bundle):
 
 ```bash
-pnpm desktop
+pnpm build       # pnpm -r build across protocol, hub, and app
+pnpm typecheck   # typecheck the whole workspace
 ```
 
-Package a distributable. The hub has no native dependencies, so the whole stack (hub + `ws`
-+ the built app) is bundled into the app — the output is a single file to hand off:
-
-```bash
-pnpm desktop:dist          # build for the current OS → packages/desktop/release/
-pnpm desktop:dist:linux    # → WebViz-<version>.AppImage   (chmod +x, then double-click)
-pnpm desktop:dist:win      # → WebViz Setup <version>.exe   (NSIS installer)
-```
-
-Notes:
-- **Cross-building Windows from Linux needs [wine](https://www.winehq.org/)** installed
-  (electron-builder invokes it for the NSIS stage); otherwise build `:win` on a Windows
-  machine. The Linux AppImage builds anywhere.
-- On some locked-down Linux setups Electron's sandbox needs a root-owned setuid
-  `chrome-sandbox`; the AppImage handles this, but a dev `pnpm desktop` there may need
-  `--no-sandbox`.
+The header-only C++ SDK builds separately — see `sdks/cpp/README.md`.
 
 ## Tests
 

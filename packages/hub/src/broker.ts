@@ -50,7 +50,7 @@ export class Broker {
   }
 
   /** Stop accepting connections and close the WebSocket server (clean shutdown
-   * for an embedded host, e.g. the Electron desktop app). */
+   * for an embedded in-process host). */
   close(): void {
     for (const c of this.conns.values()) c.ws.close();
     this.wss.close();

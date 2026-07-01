@@ -11,7 +11,3 @@ __pycache__/
 .venv/
 venv/
 data/
-
-# desktop build artifacts
-packages/desktop/build/
-packages/desktop/release/

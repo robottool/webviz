@@ -1,7 +1,7 @@
 /**
  * Hub CLI entry point. Starts the WebSocket broker (:7777) and the HTTP
  * asset/REST server (:8080) with env-overridable paths/ports. The actual wiring
- * lives in `server.ts`'s `startHub()` so it can also be embedded (desktop app).
+ * lives in `server.ts`'s `startHub()` so it can also be embedded in-process.
  */
 
 import path from 'node:path';
