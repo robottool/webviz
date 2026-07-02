@@ -12,7 +12,6 @@
 import type { ReactNode } from 'react';
 
 export type IconName =
-  | 'logo'
   | 'cube'
   | 'camera'
   | 'chart'
@@ -30,17 +29,6 @@ export type IconName =
   | 'newfile';
 
 const PATHS: Record<IconName, ReactNode> = {
-  // Brand mark — a robot head (antenna + screen face with two eyes): the
-  // "robot data viewer" idea at a glance. Distinct from the 3D tab's `cube`.
-  logo: (
-    <>
-      <circle cx="12" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
-      <path d="M12 4.7V8" />
-      <rect x="4.5" y="8" width="15" height="11" rx="3" />
-      <circle cx="9" cy="13.4" r="1.4" fill="currentColor" stroke="none" />
-      <circle cx="15" cy="13.4" r="1.4" fill="currentColor" stroke="none" />
-    </>
-  ),
   // Tab types
   cube: (
     <>

@@ -25,10 +25,7 @@ export function TopBar() {
   // the brand and actions.
   return (
     <div className="topbar">
-      <span className="brand">
-        <Icon name="logo" size={16} />
-        WebViz
-      </span>
+      <span className="brand">WebViz</span>
       <div className="spacer" />
       <SettingsMenu />
       <LayoutMenu />
