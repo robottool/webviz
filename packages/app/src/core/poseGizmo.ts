@@ -87,6 +87,10 @@ export class PoseGizmo {
       this.changeCb?.();
       this.scene.requestRender();
     });
+    // Repaint on any gizmo 'change' (fires when the hovered axis flips on/off);
+    // without it the coalesced render loop leaves a stale hover highlight once
+    // the cursor moves away (nothing else would request a redraw).
+    tc.addEventListener('change', () => this.scene.requestRender());
     this.container.add(tc.getHelper());
     return tc;
   }
