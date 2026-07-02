@@ -75,11 +75,12 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
   per-joint sliders + a base-pose input to preview. Once your pipeline publishes
   `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
-- **Drag the robot by its tool tip (IK)**: in RobotModel properties set Joints to
-  **IK (drag TCP)** — the arm freezes at its current pose and a gizmo appears on the
-  tool tip. Drag it and a client-side Jacobian solver poses the arm to follow, in real
-  time (local preview only — it doesn't command the robot). Pick the TCP link and watch
-  the reach/residual readout in the properties panel.
+- **Drag the robot by its tool tip (IK)**: in RobotModel properties (serial arms only)
+  set Joints to **IK (drag TCP)** — the arm freezes at its current pose and a gizmo
+  appears on the tool tip. Drag it and the arm follows in real time. Two solver backends:
+  **Native** solves in-browser with a Jacobian solver (no hub needed), or **External**
+  publishes the target as `wv/Pose` and drives the arm from a `wv/JointState` channel your
+  own solver (MoveIt/KDL/ikfast/…) publishes back — same drag UX, your exact kinematics.
 
 ## Build all packages
 

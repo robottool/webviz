@@ -23,7 +23,9 @@ import type { JointState, RobotModel } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
 import { LocalAssetResolver, type PickedFile } from '../core/meshResolver.js';
 import { basename, defaultAssetBase, extOf, loadMeshFromUrl } from '../core/meshLoad.js';
-import { RobotIkController, type IkResidual } from './RobotIkController.js';
+import { RobotIkController, type IkBackend, type IkResidual } from './RobotIkController.js';
+
+export type { IkBackend } from './RobotIkController.js';
 
 export type Source = 'channel' | 'manual';
 /** Joints add an extra source ('ik') beyond the shared channel/manual `Source`,
@@ -72,6 +74,13 @@ interface Settings {
   tcp_link: string;
   /** IK mode: orientation task weight (0–1); position weight is fixed at 1. */
   ik_orient_weight: number;
+  /** IK mode: 'native' (in-browser DLS) or 'external' (round-trip to a user
+   * solver over the hub). */
+  ik_backend: IkBackend;
+  /** External IK: channel the gizmo target is published on (wv/Pose). */
+  ik_target_channel: string;
+  /** External IK: channel the solved joints are read from (wv/JointState). */
+  ik_solution_channel: string;
 }
 
 /** Normalize a GitHub web URL (`/blob/`, `/tree/`, `/raw/`) to a raw-content
@@ -220,6 +229,9 @@ export class RobotModelPlugin implements DisplayPlugin {
       manual_pose: { xyz: [0, 0, 0], rpy: [0, 0, 0] },
       tcp_link: '',
       ik_orient_weight: 0.4,
+      ik_backend: 'native',
+      ik_target_channel: 'tcp_target',
+      ik_solution_channel: 'ik/joint_states',
       ...(initial as Partial<Settings> | undefined),
     };
   }
@@ -656,9 +668,15 @@ export class RobotModelPlugin implements DisplayPlugin {
       this.settings.tcp_link,
       this.ctx.scene,
       this.id,
+      this.ctx.hub,
+      {
+        backend: this.settings.ik_backend,
+        targetChannel: this.settings.ik_target_channel,
+        solutionChannel: this.settings.ik_solution_channel,
+        wRot: this.settings.ik_orient_weight,
+      },
       () => this.emitChange(),
     );
-    this.ik.wRot = this.settings.ik_orient_weight;
     this.emitChange();
   }
 
@@ -756,8 +774,17 @@ export class RobotModelPlugin implements DisplayPlugin {
       this.manualDirty = true;
       this.jointsDirty = true;
     }
-    // Changing the TCP link while in IK rebuilds the chain + gizmo.
-    if ('tcp_link' in patch && this.settings.joint_source === 'ik') this.enterIk();
+    // Changing the TCP link or the solver backend/channels while in IK rebuilds
+    // the chain + gizmo (and re-wires the external pub/sub).
+    if (
+      this.settings.joint_source === 'ik' &&
+      ('tcp_link' in patch ||
+        'ik_backend' in patch ||
+        'ik_target_channel' in patch ||
+        'ik_solution_channel' in patch)
+    ) {
+      this.enterIk();
+    }
     if ('ik_orient_weight' in patch && this.ik) this.ik.wRot = this.settings.ik_orient_weight;
     if ('opacity' in patch) this.applyOpacity();
     this.ctx?.scene.requestRender();

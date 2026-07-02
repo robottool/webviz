@@ -1,24 +1,45 @@
 /**
  * Drives a loaded URDF robot's joints so its tool tip (TCP) follows an
- * interactive gizmo — the "IK" joint source of `RobotModelPlugin`. Everything is
- * client-side: `urdf-loader` has already parsed the URDF into a `THREE.Object3D`
- * tree, so forward kinematics is just reading `matrixWorld`, and the geometric
- * Jacobian comes from each joint's world axis + origin. The damped-least-squares
- * step itself lives in `core/ik.ts`.
+ * interactive gizmo — the "IK" joint source of `RobotModelPlugin`. It owns the
+ * drag gizmo and the actuated chain, and supports two interchangeable solver
+ * backends:
  *
- * On construction it builds the actuated chain root→TCP, drops a `PoseGizmo` at
- * the current TCP pose, and on every gizmo drag runs a warm-started IK loop and
- * applies the solution. The robot's base is left untouched (the plugin freezes
- * it while in IK), so the gizmo target and the FK live in the same fixed frame.
+ *   native   — solve in-browser with the damped-least-squares Jacobian step in
+ *              `core/ik.ts`. Fully client-side (no hub), instant, but uses our
+ *              generic solver / joint limits.
+ *   external — publish the gizmo pose as a `wv/Pose` target to the hub and drive
+ *              the robot from a `wv/JointState` solution channel the user's own
+ *              solver (MoveIt/KDL/ikfast/…) publishes back. Needs a hub; uses
+ *              their exact kinematics, at the cost of a round-trip.
+ *
+ * Either way the gizmo *is* the target and the robot's base is left frozen (the
+ * plugin holds it), so target and FK share the fixed frame. Kinematics come free
+ * from `urdf-loader`: the chain is the scene-graph parents root→TCP, FK is
+ * `matrixWorld`, and the Jacobian is each joint's world axis + origin.
  */
 
 import * as THREE from 'three';
 import type { URDFRobot } from 'urdf-loader';
+import type { JointState, PoseStamped } from '@webviz/protocol';
 import type { SceneManager } from '../core/SceneManager.js';
+import type { HubClient } from '../protocol/HubClient.js';
 import { PoseGizmo } from '../core/poseGizmo.js';
+import { sourcePublisher, type PublishHandle } from '../core/sourcePublisher.js';
 import { IK_DEFAULTS, orientationError, solveDampedLeastSquares } from '../core/ik.js';
 
 type JointType = 'revolute' | 'continuous' | 'prismatic';
+
+export type IkBackend = 'native' | 'external';
+
+export interface IkConfig {
+  backend: IkBackend;
+  /** External: channel the gizmo target is published on (wv/Pose). */
+  targetChannel: string;
+  /** External: channel the solved joints are read from (wv/JointState). */
+  solutionChannel: string;
+  /** Native: orientation task weight (0–1); position weight is fixed at 1. */
+  wRot: number;
+}
 
 interface ChainJoint {
   name: string;
@@ -34,9 +55,12 @@ export interface IkResidual {
   rot: number; // radians
 }
 
+const PUBLISH_HZ = 30; // cap while dragging (external)
+const KEEPALIVE_MS = 500; // re-publish the target so a late solver latches it
+
 export class RobotIkController {
-  /** Orientation task weight (Properties-tunable); position weight stays 1. */
-  wRot = IK_DEFAULTS.wRot;
+  /** Orientation task weight (native only, Properties-tunable). */
+  wRot: number;
 
   private container = new THREE.Group();
   private gizmo: PoseGizmo;
@@ -45,6 +69,16 @@ export class RobotIkController {
   private tcp: THREE.Object3D | null = null;
   private q: number[] = [];
   private residual: IkResidual = { pos: 0, rot: 0 };
+
+  // External backend
+  private readonly backend: IkBackend;
+  private readonly targetChannel: string;
+  private readonly solutionChannel: string;
+  private targetHandle: PublishHandle | null = null;
+  private unsubSolution: (() => void) | null = null;
+  private keepalive: ReturnType<typeof setInterval> | null = null;
+  private lastPubMs = 0;
+  private hasSolution = false;
 
   // Scratch objects reused across the solve loop to avoid per-iteration allocation.
   private readonly targetP = new THREE.Vector3();
@@ -56,15 +90,25 @@ export class RobotIkController {
     private robot: URDFRobot,
     tcpLinkName: string,
     private scene: SceneManager,
-    baseId: string,
+    private baseId: string,
+    private hub: HubClient,
+    config: IkConfig,
     private onSolved: () => void,
   ) {
+    this.backend = config.backend;
+    this.targetChannel = config.targetChannel;
+    this.solutionChannel = config.solutionChannel;
+    this.wRot = config.wRot;
     this.gizmoId = `${baseId}:ik-gizmo`;
     this.buildChain(tcpLinkName);
     this.scene.addObject(this.gizmoId, this.container);
     this.gizmo = new PoseGizmo(this.scene, this.container);
-    this.gizmo.onChange(() => this.solve());
+    this.gizmo.onChange(() => this.onGizmoChange());
+    this.gizmo.onDragEnd(() => {
+      if (this.backend === 'external') this.publishTarget(true);
+    });
     this.reseed();
+    if (this.backend === 'external') this.startExternal();
   }
 
   /** Snap the gizmo back to the robot's current TCP pose and re-seed `q` from
@@ -78,64 +122,77 @@ export class RobotIkController {
     this.robot.updateMatrixWorld(true);
     this.tcp.getWorldPosition(this.gizmo.node.position);
     this.tcp.getWorldQuaternion(this.gizmo.node.quaternion);
+    this.residual = { pos: 0, rot: 0 };
+    if (this.backend === 'external') this.publishTarget(true);
     this.scene.requestRender();
   }
 
-  getResidual(): IkResidual {
+  /** Current position/orientation error, or null when external and no solution
+   * has arrived yet (so the UI can show a "waiting for solver" state). */
+  getResidual(): IkResidual | null {
+    if (this.backend === 'external' && !this.hasSolution) return null;
     return this.residual;
   }
 
   dispose(): void {
+    if (this.keepalive != null) clearInterval(this.keepalive);
+    this.keepalive = null;
+    this.unsubSolution?.();
+    this.unsubSolution = null;
+    this.targetHandle?.close();
+    this.targetHandle = null;
     this.gizmo.dispose();
     this.scene.removeObject(this.gizmoId);
   }
 
-  // --- internals ---
+  // --- backends ---
 
-  /** Walk the scene-graph parent chain from the TCP link up to the robot root,
-   * collecting the actuated (non-fixed) joints in between, base→tip. */
-  private buildChain(tcpLinkName: string): void {
-    this.tcp =
-      (this.robot.links[tcpLinkName] as THREE.Object3D | undefined) ??
-      (this.robot.frames?.[tcpLinkName] as THREE.Object3D | undefined) ??
-      null;
-    const joints: ChainJoint[] = [];
-    let node: THREE.Object3D | null = this.tcp;
-    while (node && node !== (this.robot as unknown as THREE.Object3D)) {
-      const j = node as unknown as {
-        isURDFJoint?: boolean;
-        jointType?: string;
-        axis?: THREE.Vector3;
-        limit?: { lower: number; upper: number };
-      };
-      if (j.isURDFJoint && j.jointType && j.jointType !== 'fixed') {
-        const type = j.jointType as JointType;
-        let lower = j.limit?.lower ?? 0;
-        let upper = j.limit?.upper ?? 0;
-        // Same limit fallbacks as RobotModelPlugin.computeJointInfo.
-        if (type === 'continuous' || (lower === 0 && upper === 0)) {
-          if (type === 'prismatic') {
-            lower = -1;
-            upper = 1;
-          } else {
-            lower = -Math.PI;
-            upper = Math.PI;
-          }
-        }
-        joints.push({
-          name: (node as unknown as { name: string }).name,
-          axis: (j.axis ?? new THREE.Vector3(0, 0, 1)).clone(),
-          type,
-          lower,
-          upper,
-          obj: node,
-        });
-      }
-      node = node.parent;
-    }
-    joints.reverse(); // base → tip
-    this.chain = joints;
+  private onGizmoChange(): void {
+    if (this.backend === 'native') this.solve();
+    else this.publishTarget();
   }
+
+  /** External: advertise the target channel, subscribe to the solution channel,
+   * and keep the target alive so a solver that starts later latches onto it. */
+  private startExternal(): void {
+    this.targetHandle = sourcePublisher.advertise(this.targetChannel, 'wv/Pose', 'json');
+    this.unsubSolution = this.hub.subscribe(this.solutionChannel, (m) => {
+      if (m.binary) return;
+      this.applyExternalJoints(m.data as JointState);
+    });
+    this.publishTarget(true);
+    this.keepalive = setInterval(() => this.publishTarget(true), KEEPALIVE_MS);
+  }
+
+  private publishTarget(force = false): void {
+    if (!this.targetHandle) return;
+    const now = performance.now();
+    if (!force && now - this.lastPubMs < 1000 / PUBLISH_HZ) return;
+    this.lastPubMs = now;
+    const p = this.gizmo.node.position;
+    const q = this.gizmo.node.quaternion;
+    const pose: PoseStamped = {
+      id: this.baseId,
+      frame_id: this.scene.getFixedFrame(),
+      position: [p.x, p.y, p.z],
+      orientation: [q.x, q.y, q.z, q.w],
+    };
+    this.targetHandle.send(pose);
+  }
+
+  private applyExternalJoints(js: JointState): void {
+    for (let i = 0; i < js.names.length; i++) {
+      const v = js.positions[i];
+      if (v !== undefined) this.robot.setJointValue(js.names[i], v);
+    }
+    this.robot.updateMatrixWorld(true);
+    this.hasSolution = true;
+    this.updateResidual();
+    this.scene.requestRender();
+    this.onSolved();
+  }
+
+  // --- native solver ---
 
   /** Run the warm-started DLS loop toward the gizmo's current pose and apply it. */
   private solve(): void {
@@ -195,13 +252,7 @@ export class RobotIkController {
     }
 
     this.applyQ();
-    // Recompute the residual against the final applied pose for the readout.
-    this.tcp.getWorldPosition(this.tcpP);
-    this.tcp.getWorldQuaternion(this.tcpQ);
-    this.residual = {
-      pos: this.targetP.clone().sub(this.tcpP).length(),
-      rot: orientationError(this.targetQ, this.tcpQ).length(),
-    };
+    this.updateResidual();
     this.scene.requestRender();
     this.onSolved();
   }
@@ -211,5 +262,63 @@ export class RobotIkController {
       this.robot.setJointValue(this.chain[i].name, this.q[i]);
     }
     this.robot.updateMatrixWorld(true);
+  }
+
+  /** Residual of the *current* robot pose against the gizmo target. */
+  private updateResidual(): void {
+    if (!this.tcp) return;
+    this.tcp.getWorldPosition(this.tcpP);
+    this.tcp.getWorldQuaternion(this.tcpQ);
+    this.residual = {
+      pos: this.tcpP.distanceTo(this.gizmo.node.position),
+      rot: orientationError(this.gizmo.node.quaternion, this.tcpQ).length(),
+    };
+  }
+
+  // --- chain ---
+
+  /** Walk the scene-graph parent chain from the TCP link up to the robot root,
+   * collecting the actuated (non-fixed) joints in between, base→tip. */
+  private buildChain(tcpLinkName: string): void {
+    this.tcp =
+      (this.robot.links[tcpLinkName] as THREE.Object3D | undefined) ??
+      (this.robot.frames?.[tcpLinkName] as THREE.Object3D | undefined) ??
+      null;
+    const joints: ChainJoint[] = [];
+    let node: THREE.Object3D | null = this.tcp;
+    while (node && node !== (this.robot as unknown as THREE.Object3D)) {
+      const j = node as unknown as {
+        isURDFJoint?: boolean;
+        jointType?: string;
+        axis?: THREE.Vector3;
+        limit?: { lower: number; upper: number };
+      };
+      if (j.isURDFJoint && j.jointType && j.jointType !== 'fixed') {
+        const type = j.jointType as JointType;
+        let lower = j.limit?.lower ?? 0;
+        let upper = j.limit?.upper ?? 0;
+        // Same limit fallbacks as RobotModelPlugin.computeJointInfo.
+        if (type === 'continuous' || (lower === 0 && upper === 0)) {
+          if (type === 'prismatic') {
+            lower = -1;
+            upper = 1;
+          } else {
+            lower = -Math.PI;
+            upper = Math.PI;
+          }
+        }
+        joints.push({
+          name: (node as unknown as { name: string }).name,
+          axis: (j.axis ?? new THREE.Vector3(0, 0, 1)).clone(),
+          type,
+          lower,
+          upper,
+          obj: node,
+        });
+      }
+      node = node.parent;
+    }
+    joints.reverse(); // base → tip
+    this.chain = joints;
   }
 }

@@ -11,6 +11,7 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hubClient } from '../protocol/HubClient.js';
 import type {
+  IkBackend,
   JointSource,
   RobotModelPlugin,
   Source,
@@ -33,6 +34,9 @@ interface RMSettings {
   manual_pose: ManualPose;
   tcp_link: string;
   ik_orient_weight: number;
+  ik_backend: IkBackend;
+  ik_target_channel: string;
+  ik_solution_channel: string;
 }
 
 export function RobotModelProperties({
@@ -523,6 +527,10 @@ function IkPanel({
   onChange: () => void;
   force: () => void;
 }) {
+  // Channel names commit on blur/Enter so we don't re-advertise per keystroke.
+  const [target, setTarget] = useState(s.ik_target_channel);
+  const [solution, setSolution] = useState(s.ik_solution_channel);
+  const external = s.ik_backend === 'external';
   const residual = plugin.getIkResidual();
   const reached = !!residual && residual.pos < 1e-3 && residual.rot < 1e-2;
   return (
@@ -535,27 +543,75 @@ function IkPanel({
           onChange={(v) => set({ tcp_link: v })}
         />
       </label>
-      {residual && (
-        <div className={reached ? 'report report-ok' : 'report report-warn'}>
-          {reached
-            ? '✓ target reached'
-            : `⚠ off by ${(residual.pos * 1000).toFixed(0)} mm, ${(
-                (residual.rot * 180) /
-                Math.PI
-              ).toFixed(0)}°`}
-        </div>
-      )}
+
       <label className="props-row">
-        <span>Orient. weight</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={s.ik_orient_weight}
-          onChange={(e) => set({ ik_orient_weight: Number(e.target.value) })}
+        <span>Solver</span>
+        <Segmented<IkBackend>
+          value={s.ik_backend}
+          options={[
+            ['native', 'Native'],
+            ['external', 'External'],
+          ]}
+          onChange={(v) => set({ ik_backend: v })}
         />
       </label>
+
+      {external ? (
+        <>
+          <label className="props-row">
+            <span>Target ch.</span>
+            <input
+              type="text"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              onBlur={() => set({ ik_target_channel: target.trim() })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') set({ ik_target_channel: target.trim() });
+              }}
+            />
+          </label>
+          <label className="props-row">
+            <span>Solution ch.</span>
+            <input
+              type="text"
+              value={solution}
+              onChange={(e) => setSolution(e.target.value)}
+              onBlur={() => set({ ik_solution_channel: solution.trim() })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') set({ ik_solution_channel: solution.trim() });
+              }}
+            />
+          </label>
+        </>
+      ) : (
+        <label className="props-row">
+          <span>Orient. weight</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={s.ik_orient_weight}
+            onChange={(e) => set({ ik_orient_weight: Number(e.target.value) })}
+          />
+        </label>
+      )}
+
+      {external && !residual ? (
+        <div className="report muted">waiting for solver on “{s.ik_solution_channel}”…</div>
+      ) : (
+        residual && (
+          <div className={reached ? 'report report-ok' : 'report report-warn'}>
+            {reached
+              ? '✓ target reached'
+              : `⚠ off by ${(residual.pos * 1000).toFixed(0)} mm, ${(
+                  (residual.rot * 180) /
+                  Math.PI
+                ).toFixed(0)}°`}
+          </div>
+        )
+      )}
+
       <button
         style={{ width: '100%', marginTop: 4 }}
         onClick={() => {
@@ -567,8 +623,10 @@ function IkPanel({
         Recenter on current pose
       </button>
       <p className="report muted" style={{ marginTop: 6 }}>
-        Drag the gizmo on the tool tip to pose the arm; IK solves in real time.
-        The base pose is frozen while in IK.
+        Drag the gizmo on the tool tip; the base pose is frozen while in IK.{' '}
+        {external
+          ? 'External: the target is published as wv/Pose and joints are read back from your solver.'
+          : 'Native: IK is solved in-browser (no hub needed).'}
       </p>
     </div>
   );
