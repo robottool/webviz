@@ -11,6 +11,7 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hubClient } from '../protocol/HubClient.js';
 import type {
+  JointSource,
   RobotModelPlugin,
   Source,
   UrdfSource,
@@ -22,7 +23,7 @@ interface ManualPose {
 }
 interface RMSettings {
   urdf_source: UrdfSource;
-  joint_source: Source;
+  joint_source: JointSource;
   pose_source: Source;
   model_channel: string;
   joint_channel: string;
@@ -30,6 +31,8 @@ interface RMSettings {
   opacity: number;
   manual_joints: Record<string, number>;
   manual_pose: ManualPose;
+  tcp_link: string;
+  ik_orient_weight: number;
 }
 
 export function RobotModelProperties({
@@ -390,15 +393,26 @@ export function RobotModelProperties({
         <>
           {/* --- Joints --- */}
           <div className="props-section">Joints</div>
-          <Segmented<Source>
+          <Segmented<JointSource>
             value={s.joint_source}
             options={[
               ['manual', 'Manual'],
               ['channel', 'Channel'],
+              // IK only makes sense for a serial arm; hide it otherwise.
+              ...(plugin.isIkFeasible()
+                ? ([['ik', 'IK (drag TCP)']] as Array<[JointSource, string]>)
+                : []),
             ]}
             onChange={(v) => set({ joint_source: v })}
           />
-          {s.joint_source === 'channel' ? (
+          {!plugin.isIkFeasible() && (
+            <p className="report muted" style={{ marginTop: 4 }}>
+              IK unavailable — needs a serial arm (≥ 2 movable joints in one chain).
+            </p>
+          )}
+          {s.joint_source === 'ik' ? (
+            <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
+          ) : s.joint_source === 'channel' ? (
             <label className="props-row">
               <span>Joints ch.</span>
               <Select
@@ -492,6 +506,70 @@ export function RobotModelProperties({
           </label>
         </>
       )}
+    </div>
+  );
+}
+
+function IkPanel({
+  plugin,
+  s,
+  set,
+  onChange,
+  force,
+}: {
+  plugin: RobotModelPlugin;
+  s: RMSettings;
+  set: (patch: Partial<RMSettings>) => void;
+  onChange: () => void;
+  force: () => void;
+}) {
+  const residual = plugin.getIkResidual();
+  const reached = !!residual && residual.pos < 1e-3 && residual.rot < 1e-2;
+  return (
+    <div className="ik-panel">
+      <label className="props-row">
+        <span>TCP link</span>
+        <Select
+          value={s.tcp_link}
+          options={plugin.getLinkNames()}
+          onChange={(v) => set({ tcp_link: v })}
+        />
+      </label>
+      {residual && (
+        <div className={reached ? 'report report-ok' : 'report report-warn'}>
+          {reached
+            ? '✓ target reached'
+            : `⚠ off by ${(residual.pos * 1000).toFixed(0)} mm, ${(
+                (residual.rot * 180) /
+                Math.PI
+              ).toFixed(0)}°`}
+        </div>
+      )}
+      <label className="props-row">
+        <span>Orient. weight</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={s.ik_orient_weight}
+          onChange={(e) => set({ ik_orient_weight: Number(e.target.value) })}
+        />
+      </label>
+      <button
+        style={{ width: '100%', marginTop: 4 }}
+        onClick={() => {
+          plugin.reseedIk();
+          onChange();
+          force();
+        }}
+      >
+        Recenter on current pose
+      </button>
+      <p className="report muted" style={{ marginTop: 6 }}>
+        Drag the gizmo on the tool tip to pose the arm; IK solves in real time.
+        The base pose is frozen while in IK.
+      </p>
     </div>
   );
 }

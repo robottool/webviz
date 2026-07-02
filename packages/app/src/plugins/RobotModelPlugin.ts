@@ -23,9 +23,18 @@ import type { JointState, RobotModel } from '@webviz/protocol';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
 import { LocalAssetResolver, type PickedFile } from '../core/meshResolver.js';
 import { basename, defaultAssetBase, extOf, loadMeshFromUrl } from '../core/meshLoad.js';
+import { RobotIkController, type IkResidual } from './RobotIkController.js';
 
 export type Source = 'channel' | 'manual';
+/** Joints add an extra source ('ik') beyond the shared channel/manual `Source`,
+ * so the base pose selector can't accidentally offer IK. */
+export type JointSource = Source | 'ik';
 export type UrdfSource = 'channel' | 'local';
+
+/** Minimum actuated joints in a serial chain for the drag-TCP IK to be offered.
+ * Below this the robot isn't arm-like (a mobile base, a static model, a lone
+ * pan/wheel joint) and IK would be meaningless, so the option is hidden. */
+const MIN_IK_DOF = 2;
 
 export interface JointInfo {
   name: string;
@@ -51,7 +60,7 @@ interface ManualPose {
 
 interface Settings {
   urdf_source: UrdfSource;
-  joint_source: Source;
+  joint_source: JointSource;
   pose_source: Source;
   model_channel: string;
   joint_channel: string;
@@ -59,6 +68,10 @@ interface Settings {
   opacity: number;
   manual_joints: Record<string, number>;
   manual_pose: ManualPose;
+  /** IK mode: the tool-tip link the gizmo drives ('' → auto-detected tip). */
+  tcp_link: string;
+  /** IK mode: orientation task weight (0–1); position weight is fixed at 1. */
+  ik_orient_weight: number;
 }
 
 /** Normalize a GitHub web URL (`/blob/`, `/tree/`, `/raw/`) to a raw-content
@@ -179,6 +192,10 @@ export class RobotModelPlugin implements DisplayPlugin {
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
   private manualDirty = false;
+  /** Active only while `joint_source === 'ik'` — owns the drag gizmo + solver. */
+  private ik: RobotIkController | null = null;
+  /** Whether the loaded robot is arm-like enough to offer IK (cached at load). */
+  private ikFeasible = false;
 
   private unsubModel: (() => void) | null = null;
   private unsubJoints: (() => void) | null = null;
@@ -201,6 +218,8 @@ export class RobotModelPlugin implements DisplayPlugin {
       opacity: 1,
       manual_joints: {},
       manual_pose: { xyz: [0, 0, 0], rpy: [0, 0, 0] },
+      tcp_link: '',
+      ik_orient_weight: 0.4,
       ...(initial as Partial<Settings> | undefined),
     };
   }
@@ -493,10 +512,21 @@ export class RobotModelPlugin implements DisplayPlugin {
         this.settings.manual_joints[j.name] = clamp(0, j.lower, j.upper);
       }
     }
+    this.ikFeasible = this.computeIkFeasible();
     this.applyOpacity();
     this.manualDirty = true;
     this.jointsDirty = true;
     this.ctx.scene.addObject(this.id, robot);
+    // A (re)load replaces the object the IK gizmo/chain referenced. Rebuild it if
+    // we're in IK mode and the new robot is arm-like; otherwise fall back to the
+    // channel source so an infeasible robot never sits stuck in IK.
+    if (this.settings.joint_source === 'ik') {
+      if (this.ikFeasible) this.enterIk();
+      else {
+        this.settings.joint_source = 'channel';
+        this.exitIk();
+      }
+    }
     // Re-frame the viewport once the (re)loaded robot's meshes settle.
     this.ctx.scene.armAutoFit();
     this.ctx.scene.requestRender();
@@ -526,6 +556,9 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   onRender(): void {
     if (!this.robot) return;
+    // In IK mode the controller owns the joints and the base is frozen at the
+    // pose it held on entry, so skip both the joint and pose application here.
+    if (this.settings.joint_source === 'ik') return;
     if (this.settings.joint_source === 'manual') {
       if (this.manualDirty) {
         this.applyManualJoints();
@@ -607,6 +640,99 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ctx.scene.requestRender();
   }
 
+  // --- IK mode (drag the TCP) ---
+
+  /** Enter / rebuild IK mode: mint a controller that drops a gizmo on the TCP
+   * link and solves as it's dragged. No-op until a robot is loaded. */
+  private enterIk(): void {
+    if (!this.ctx || !this.robot) return;
+    this.ik?.dispose();
+    this.ik = null;
+    if (!this.settings.tcp_link || !(this.settings.tcp_link in this.robot.links)) {
+      this.settings.tcp_link = this.defaultTcpLink();
+    }
+    this.ik = new RobotIkController(
+      this.robot,
+      this.settings.tcp_link,
+      this.ctx.scene,
+      this.id,
+      () => this.emitChange(),
+    );
+    this.ik.wRot = this.settings.ik_orient_weight;
+    this.emitChange();
+  }
+
+  /** Leave IK mode: tear down the gizmo and let channel/manual resume. */
+  private exitIk(): void {
+    this.ik?.dispose();
+    this.ik = null;
+    this.manualDirty = true;
+    this.jointsDirty = true;
+    this.ctx?.scene.requestRender();
+  }
+
+  /** True when the loaded robot has a serial chain with ≥ `MIN_IK_DOF` actuated
+   * joints — i.e. it's arm-like enough that drag-TCP IK is worth offering. */
+  isIkFeasible(): boolean {
+    return this.ikFeasible;
+  }
+
+  /** Max actuated (non-fixed) joints along any root→link chain ≥ MIN_IK_DOF. */
+  private computeIkFeasible(): boolean {
+    if (!this.robot) return false;
+    const root = this.robot as unknown as THREE.Object3D;
+    let best = 0;
+    this.robot.traverse((n) => {
+      if (!(n as unknown as { isURDFLink?: boolean }).isURDFLink) return;
+      let count = 0;
+      let p: THREE.Object3D | null = n;
+      while (p && p !== root.parent) {
+        const j = p as unknown as { isURDFJoint?: boolean; jointType?: string };
+        if (j.isURDFJoint && j.jointType && j.jointType !== 'fixed') count++;
+        p = p.parent;
+      }
+      if (count > best) best = count;
+    });
+    return best >= MIN_IK_DOF;
+  }
+
+  /** The leaf link farthest from the root — a sensible default TCP. */
+  private defaultTcpLink(): string {
+    if (!this.robot) return '';
+    let best = '';
+    let bestDepth = -1;
+    const root = this.robot as unknown as THREE.Object3D;
+    this.robot.traverse((n) => {
+      if (!(n as unknown as { isURDFLink?: boolean }).isURDFLink) return;
+      let depth = 0;
+      let p: THREE.Object3D | null = n.parent;
+      while (p && p !== root.parent) {
+        depth++;
+        p = p.parent;
+      }
+      if (depth > bestDepth) {
+        bestDepth = depth;
+        best = (n as unknown as { name: string }).name;
+      }
+    });
+    return best;
+  }
+
+  /** Link names for the Properties TCP picker. */
+  getLinkNames(): string[] {
+    return this.robot ? Object.keys(this.robot.links) : [];
+  }
+
+  /** Current IK residual (position/orientation error), or null when not in IK. */
+  getIkResidual(): IkResidual | null {
+    return this.ik ? this.ik.getResidual() : null;
+  }
+
+  /** Re-snap the gizmo to the robot's current TCP pose. */
+  reseedIk(): void {
+    this.ik?.reseed();
+  }
+
   // --- DisplayPlugin contract ---
 
   /** RobotModel uses a custom Properties UI, so the schema form is unused. */
@@ -619,14 +745,20 @@ export class RobotModelPlugin implements DisplayPlugin {
   }
 
   updateSettings(patch: Record<string, unknown>): void {
+    const prevJointSource = this.settings.joint_source;
     this.settings = { ...this.settings, ...(patch as Partial<Settings>) };
     if ('model_channel' in patch) this.bindModel();
     if ('joint_channel' in patch) this.bindJoints();
     if ('urdf_source' in patch) this.bindModel();
-    if ('joint_source' in patch) {
+    if ('joint_source' in patch && this.settings.joint_source !== prevJointSource) {
+      if (this.settings.joint_source === 'ik') this.enterIk();
+      else if (prevJointSource === 'ik') this.exitIk();
       this.manualDirty = true;
       this.jointsDirty = true;
     }
+    // Changing the TCP link while in IK rebuilds the chain + gizmo.
+    if ('tcp_link' in patch && this.settings.joint_source === 'ik') this.enterIk();
+    if ('ik_orient_weight' in patch && this.ik) this.ik.wRot = this.settings.ik_orient_weight;
     if ('opacity' in patch) this.applyOpacity();
     this.ctx?.scene.requestRender();
     this.emitChange();
@@ -636,6 +768,7 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.unsubChannelList?.();
     this.unsubModel?.();
     this.unsubJoints?.();
+    this.ik?.dispose();
     this.localResolver?.dispose();
     this.ctx?.scene.removeObject(this.id);
     this.robot = null;
