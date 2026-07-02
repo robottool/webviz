@@ -81,6 +81,8 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   **Native** solves in-browser with a Jacobian solver (no hub needed), or **External**
   publishes the target as `wv/Pose` and drives the arm from a `wv/JointState` channel your
   own solver (MoveIt/KDL/ikfast/…) publishes back — same drag UX, your exact kinematics.
+  `venv/bin/python3 sdks/python/ik_solver_demo.py` is a ready-to-run external solver (and a
+  template): it solves `tcp_target` → `ik/joint_states` for the demo arm.
 
 ## Build all packages
 

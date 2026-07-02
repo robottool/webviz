@@ -60,8 +60,9 @@ pnpm --filter @webviz/protocol build
 
 # --- 4. Python venv for the WS demos -----------------------------------------
 # The dependency-free /api/inject demos (demo_source.py, map_sim_demo.py) need
-# nothing; the WS demos (robot/pointcloud/image) need websockets>=11.
-say "Creating Python venv (./venv) with websockets>=11"
+# nothing; the WS demos (robot/pointcloud/image) need websockets>=11, and the
+# external-IK solver demo (ik_solver_demo.py) also needs numpy.
+say "Creating Python venv (./venv) with websockets>=11 + numpy"
 if ! have python3; then
   echo "WARNING: python3 not found — skipping venv. Install python3 + the venv" >&2
   echo "         module (e.g. 'sudo apt install python3 python3-venv') to run demos." >&2
@@ -75,7 +76,7 @@ else
     fi
   fi
   ./venv/bin/python3 -m pip install --quiet --upgrade pip
-  ./venv/bin/python3 -m pip install --quiet 'websockets>=11'
+  ./venv/bin/python3 -m pip install --quiet 'websockets>=11' numpy
   echo "Python venv ready: $(./venv/bin/python3 --version)."
 fi
 
