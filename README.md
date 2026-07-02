@@ -53,11 +53,11 @@ pnpm app        # opens http://localhost:5173
 Then feed it demo data (each in its own terminal):
 
 ```bash
-python3 sdks/python/demo_source.py             # transforms / markers / nav / log (no pip deps)
-python3 sdks/python/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
-venv/bin/python3 sdks/python/robot_demo.py     # animated UR5 arm for the 3D tab (needs websockets)
-venv/bin/python3 sdks/python/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
-venv/bin/python3 sdks/python/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)
+python3 sdks/python/demos/demo_source.py             # transforms / markers / nav / log (no pip deps)
+python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
+venv/bin/python3 sdks/python/demos/robot_demo.py     # animated UR5 arm for the 3D tab (needs websockets)
+venv/bin/python3 sdks/python/demos/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
+venv/bin/python3 sdks/python/demos/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)
 ```
 
 Open the app, it auto-connects to `ws://localhost:7777`.
@@ -81,7 +81,7 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   **Native** solves in-browser with a Jacobian solver (no hub needed), or **External**
   publishes the target as `wv/Pose` and drives the arm from a `wv/JointState` channel your
   own solver (MoveIt/KDL/ikfast/…) publishes back — same drag UX, your exact kinematics.
-  `venv/bin/python3 sdks/python/ik_solver_demo.py` is a ready-to-run external solver (and a
+  `venv/bin/python3 sdks/python/demos/ik_solver_demo.py` is a ready-to-run external solver (and a
   template): it solves `tcp_target` → `ik/joint_states` for the demo arm.
 
 ## Build all packages

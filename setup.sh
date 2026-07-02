@@ -85,7 +85,7 @@ say "Setup complete"
 cat <<EOF
 Next steps:
   ./dev.sh                                      # start hub + app, open http://localhost:5173
-  venv/bin/python3 sdks/python/image_demo.py    # (in another terminal) feed demo data
+  venv/bin/python3 sdks/python/demos/image_demo.py    # (in another terminal) feed demo data
 
 If 'pnpm' isn't found in a new shell, add this to your shell rc:
   export PATH="\$HOME/.local/bin:\$PATH"

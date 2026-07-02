@@ -30,13 +30,18 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from webviz import Client, Consumer
+# Run straight from the repo: make the sibling `webviz` package importable
+# (this file lives in sdks/python/demos; the package in sdks/python).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+from webviz import Client, Consumer  # noqa: E402
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 DEFAULT_URDF = os.path.join(
     REPO_ROOT, "packages", "app", "public", "demo-robot", "demo_arm.urdf"
 )

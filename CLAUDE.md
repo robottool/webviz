@@ -27,13 +27,13 @@ pnpm typecheck                             # typecheck all packages
 
 pnpm hub                                   # run hub: WS broker :7777 + HTTP/asset :8080 (tsx watch)
 pnpm app                                   # run app dev server (Vite) :5173, auto-connects ws://localhost:7777
-python3 sdks/python/demo_source.py         # feed demo data via HTTP /api/inject (no pip deps)
-python3 sdks/python/map_sim_demo.py        # feed the Map tab: scan-built map + wandering robot + raycast scan (HTTP, no pip deps)
+python3 sdks/python/demos/demo_source.py         # feed demo data via HTTP /api/inject (no pip deps)
+python3 sdks/python/demos/map_sim_demo.py        # feed the Map tab: scan-built map + wandering robot + raycast scan (HTTP, no pip deps)
 # The WS demos below need websockets>=11; ./setup.sh provisions ./venv with it, so run them via venv/bin/python3 (or any env that has websockets):
-venv/bin/python3 sdks/python/robot_demo.py          # feed the 3D tab: UR5 RobotModel + JointState + base TF
-venv/bin/python3 sdks/python/pointcloud_demo.py     # feed the 3D tab: animated binary wv/PointCloud
-venv/bin/python3 sdks/python/image_demo.py          # feed the Image tab: animated binary wv/Image RGB8
-venv/bin/python3 sdks/python/ik_solver_demo.py      # external IK backend: solve tcp_target → ik/joint_states (needs numpy; ./setup.sh provisions it)
+venv/bin/python3 sdks/python/demos/robot_demo.py          # feed the 3D tab: UR5 RobotModel + JointState + base TF
+venv/bin/python3 sdks/python/demos/pointcloud_demo.py     # feed the 3D tab: animated binary wv/PointCloud
+venv/bin/python3 sdks/python/demos/image_demo.py          # feed the Image tab: animated binary wv/Image RGB8
+venv/bin/python3 sdks/python/demos/ik_solver_demo.py      # external IK backend: solve tcp_target → ik/joint_states (needs numpy; ./setup.sh provisions it)
 ```
 
 The hub's asset server defaults `assetsDir` to the **repo root**, so any bundled assets are reachable at `/assets/<dir>/...` out of the box (override with `WEBVIZ_ASSETS_DIR` in production). The `RobotModel` plugin can fetch URDF + meshes from `http://<host>:8080/assets`, but the repo no longer ships a robot description — the `robot_demo.py` UR5 and the `demo_source.py` mesh marker load their URDF/meshes **online over CORS** from the upstream `Gepetto/example-robot-data` repo (`raw.githubusercontent.com`) instead.
@@ -102,6 +102,7 @@ The data path is **HubClient → TimeManager → MessageRouter → tab handlers*
 - `core/poseGizmo.ts` — reusable combined move+rotate gizmo (two `TransformControls`, rotate built first for pick priority, plane/outer-ring pickers pruned, `local` space), extracted from the `CoordinateFramePlugin` pattern. Used by `RobotIkController`; `CoordinateFramePlugin` still has its own inline copy (could adopt this later).
 
 ### `sdks/python` — minimal client
+The SDK package is `sdks/python/webviz/`; the runnable examples all live under `sdks/python/demos/`. Each demo that uses the SDK adds the package's parent dir to `sys.path` at import (a 1-line bootstrap) so it runs straight from the repo without an install.
 - `webviz/client.py` — two WS endpoints (mirror the binary header from `binary.ts`; require `pip install 'websockets>=11'` for the `websockets.sync` API). `webviz.Client` is the **source** side (`role=source`): advertises channels and sends JSON/binary frames. `webviz.Consumer` is the **client** side (`role=client`): the receive counterpart — `subscribe(name, callback)` routes JSON `message` frames to per-channel-name callbacks, deferring the subscribe until the channel is advertised (mirrors the app's `HubClient`); a background daemon thread drains the socket and binary frames are ignored (the consume path is JSON-only). `Consumer` is what powers the ROS adapter's reverse bridge.
 - `demo_source.py` — dependency-free demo; publishes transforms/markers/battery, one of each remaining JSON 3D schema (LaserScan, OccupancyGrid, Path, Pose), and a rotating `wv/Log` stream (for the Log tab) via the hub's HTTP `/api/inject` instead of WS.
 - `map_sim_demo.py` — dependency-free Map-tab (§11.5) demo. A `MapSim` holds a random world as hidden ground truth (border walls + random rectangular obstacles, `--seed` for repeatability) and drives a dot robot on a collision-avoiding random walk (publishing `mobile_base_link→odom` `wv/Transform`). It **raycasts** a 360° `wv/LaserScan` against the truth and **builds the published `wv/OccupancyGrid` from those scans** (cells traversed→free, hit→occupied, rest→unknown) so the map fills in SLAM-style as the robot explores; the trajectory is a `wv/Path` (`trail`). Also HTTP `/api/inject`. Drive the Map tab with fixed frame `odom`, map=`map`, scan=`scan`, path=`trail`, robot=`mobile_base_link`. The body frame is `mobile_base_link` (not the generic `base_link`) so it can run **alongside** `robot_demo.py` without colliding in the shared TF tree — both share the `odom` root, so both still resolve/render under the global fixed frame.

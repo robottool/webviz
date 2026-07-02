@@ -21,8 +21,13 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import struct
+import sys
 import time
+
+# Run straight from the repo: make the sibling `webviz` package importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PC_FLAG_INTENSITY = 0b001
 

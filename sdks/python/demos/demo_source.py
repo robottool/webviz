@@ -24,8 +24,14 @@ import argparse
 import base64
 import json
 import math
+import os
+import sys
 import time
 import urllib.request
+
+# Run straight from the repo: make the sibling `webviz` package importable
+# (used in WS mode; the default HTTP-inject mode needs no dependency).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def quat_from_yaw(yaw: float) -> list[float]:

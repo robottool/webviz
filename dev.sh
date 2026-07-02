@@ -76,7 +76,7 @@ echo "  • this machine:        http://localhost:5173"
 if [ -n "$lan_ip" ]; then
   echo "  • another machine/host: http://$lan_ip:5173   (e.g. browser on the Windows host)"
 fi
-echo "  Run a demo in another terminal, e.g.: venv/bin/python3 sdks/python/image_demo.py"
+echo "  Run a demo in another terminal, e.g.: venv/bin/python3 sdks/python/demos/image_demo.py"
 echo
 
 # Exit as soon as either process dies so a crashed hub/app doesn't leave a
