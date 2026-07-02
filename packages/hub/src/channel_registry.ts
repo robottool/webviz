@@ -27,7 +27,27 @@ export interface AdvertiseResult {
 
 export class ChannelRegistry {
   private byGlobalId = new Map<number, ChannelEntry>();
+  /** (ownerConnId → localId → entry) index for the per-frame `resolveLocal`
+   * hot path, so relaying a data frame is O(1) rather than a scan of every
+   * channel. Kept in sync with `byGlobalId` on advertise/unadvertise/remove. */
+  private byOwner = new Map<string, Map<number, ChannelEntry>>();
   private nextGlobalId = 1;
+
+  private index(entry: ChannelEntry): void {
+    let owned = this.byOwner.get(entry.ownerConnId);
+    if (!owned) {
+      owned = new Map();
+      this.byOwner.set(entry.ownerConnId, owned);
+    }
+    owned.set(entry.localId, entry);
+  }
+
+  private deindex(entry: ChannelEntry): void {
+    const owned = this.byOwner.get(entry.ownerConnId);
+    if (!owned) return;
+    owned.delete(entry.localId);
+    if (owned.size === 0) this.byOwner.delete(entry.ownerConnId);
+  }
 
   advertise(
     ownerConnId: string,
@@ -67,15 +87,13 @@ export class ChannelRegistry {
       localId,
     };
     this.byGlobalId.set(entry.id, entry);
+    this.index(entry);
     return { channel: entry, renamed };
   }
 
-  /** Resolve a source's local channel id to its global id. */
+  /** Resolve a source's local channel id to its global entry (O(1)). */
   resolveLocal(ownerConnId: string, localId: number): ChannelEntry | undefined {
-    for (const c of this.byGlobalId.values()) {
-      if (c.ownerConnId === ownerConnId && c.localId === localId) return c;
-    }
-    return undefined;
+    return this.byOwner.get(ownerConnId)?.get(localId);
   }
 
   get(globalId: number): ChannelEntry | undefined {
@@ -83,10 +101,14 @@ export class ChannelRegistry {
   }
 
   unadvertise(ownerConnId: string, name: string): ChannelEntry | undefined {
-    for (const [id, c] of this.byGlobalId) {
-      if (c.ownerConnId === ownerConnId && c.bareName === name) {
-        this.byGlobalId.delete(id);
-        return c;
+    const owned = this.byOwner.get(ownerConnId);
+    if (owned) {
+      for (const c of owned.values()) {
+        if (c.bareName === name) {
+          this.byGlobalId.delete(c.id);
+          this.deindex(c);
+          return c;
+        }
       }
     }
     return undefined;
@@ -94,13 +116,11 @@ export class ChannelRegistry {
 
   /** Remove and return all channels owned by a disconnected source. */
   removeBySource(ownerConnId: string): ChannelEntry[] {
-    const removed: ChannelEntry[] = [];
-    for (const [id, c] of this.byGlobalId) {
-      if (c.ownerConnId === ownerConnId) {
-        this.byGlobalId.delete(id);
-        removed.push(c);
-      }
-    }
+    const owned = this.byOwner.get(ownerConnId);
+    if (!owned) return [];
+    const removed = [...owned.values()];
+    for (const c of removed) this.byGlobalId.delete(c.id);
+    this.byOwner.delete(ownerConnId);
     return removed;
   }
 

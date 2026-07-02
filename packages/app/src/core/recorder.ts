@@ -24,8 +24,9 @@ import type { ChannelInfo } from '@webviz/protocol';
 
 interface Record {
   t: number; // performance.now() at capture
-  raw: string | ArrayBuffer;
-  size: number;
+  type: 0 | 1; // 0 = text frame, 1 = binary frame
+  /** UTF-8 bytes (text) or the raw binary frame — the exact bytes serialized. */
+  payload: Uint8Array<ArrayBuffer>;
 }
 
 const MAGIC = new Uint8Array([0x57, 0x56, 0x52, 0x32]); // "WVR2"
@@ -46,6 +47,7 @@ class Recorder {
   private catalogue: ChannelInfo[] = [];
   private limitReached = false;
   private capBytes = DEFAULT_CAP_BYTES;
+  private enc = new TextEncoder();
 
   isActive(): boolean {
     return this.active;
@@ -82,12 +84,17 @@ class Recorder {
     return this.serialize();
   }
 
-  /** Called for every raw frame; a cheap no-op when not recording or capped. */
+  /** Called for every raw frame; a cheap no-op when not recording or capped.
+   * Text frames are encoded to UTF-8 once here — the exact bytes `serialize`
+   * writes — so the size cap tracks the real `.wvrec` size rather than UTF-16
+   * code-unit counts. */
   capture(raw: string | ArrayBuffer): void {
     if (!this.active || this.limitReached) return;
-    const size = typeof raw === 'string' ? raw.length : raw.byteLength;
-    this.records.push({ t: performance.now(), raw, size });
-    this.bytes += size;
+    const type: 0 | 1 = typeof raw === 'string' ? 0 : 1;
+    const payload =
+      typeof raw === 'string' ? this.enc.encode(raw) : new Uint8Array(raw);
+    this.records.push({ t: performance.now(), type, payload });
+    this.bytes += payload.byteLength;
     if (this.bytes >= this.capBytes || this.records.length >= MAX_FRAMES) {
       this.limitReached = true; // freeze the buffer; UI finalizes the download
     }
@@ -102,21 +109,18 @@ class Recorder {
   }
 
   private serialize(): Blob {
-    const enc = new TextEncoder();
-    const cat = enc.encode(JSON.stringify(this.catalogue));
+    const cat = this.enc.encode(JSON.stringify(this.catalogue));
     const catHead = new ArrayBuffer(4);
     new DataView(catHead).setUint32(0, cat.byteLength, true);
 
     const parts: BlobPart[] = [MAGIC, catHead, cat];
     for (const r of this.records) {
-      const payload =
-        typeof r.raw === 'string' ? enc.encode(r.raw) : new Uint8Array(r.raw);
       const head = new ArrayBuffer(13);
       const dv = new DataView(head);
       dv.setFloat64(0, (r.t - this.startMs) / 1000, true);
-      dv.setUint8(8, typeof r.raw === 'string' ? 0 : 1);
-      dv.setUint32(9, payload.byteLength, true);
-      parts.push(head, payload);
+      dv.setUint8(8, r.type);
+      dv.setUint32(9, r.payload.byteLength, true);
+      parts.push(head, r.payload);
     }
     return new Blob(parts, { type: 'application/octet-stream' });
   }

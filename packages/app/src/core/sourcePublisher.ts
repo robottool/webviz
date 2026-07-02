@@ -4,8 +4,8 @@
  * a recording while a live connection stays up.
  *
  * The app's `HubClient` is a consumer (`role=client`) and cannot advertise. This
- * singleton owns one shared `ws://<host>:7777?role=source&id=ui` socket per
- * window; callers `advertise()` a channel and get a handle to `send()` JSON
+ * singleton owns one shared `role=source&id=ui` socket per window (URL derived by
+ * `core/hubUrl.ts`); callers `advertise()` a channel and get a handle to `send()` JSON
  * frames. The hub remaps each `(conn, localId)` → a fresh global id and rewrites
  * the frame's `channel_id` on the way out (`channel_registry.ts`), so every
  * subscriber — including our own `HubClient` — just sees a new named channel
@@ -18,14 +18,7 @@
  */
 
 import type { Encoding } from '@webviz/protocol';
-
-function hubSourceUrl(): string {
-  const host =
-    typeof location !== 'undefined' && location.hostname
-      ? location.hostname
-      : 'localhost';
-  return `ws://${host}:7777?role=source&id=ui`;
-}
+import { hubSourceUrl } from './hubUrl.js';
 
 export interface PublishHandle {
   /** Publish one JSON `message` frame for this channel (latched for reconnect). */
@@ -91,7 +84,7 @@ class SourcePublisher {
     if (this.ws) return;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(hubSourceUrl());
+      ws = new WebSocket(hubSourceUrl('ui'));
     } catch {
       this.scheduleReconnect();
       return;

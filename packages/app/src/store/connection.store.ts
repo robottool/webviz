@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import type { ChannelInfo } from '@webviz/protocol';
 import { hubClient, type ConnectionStatus } from '../protocol/HubClient.js';
-import { persistedHubUrl } from './settings.store.js';
+import { autoHubClientUrl, hubClientUrl } from '../core/hubUrl.js';
 
 /** Human label for each connection status — one wording shared by the top bar
  * and status bar so the same state always reads the same. */
@@ -26,25 +26,16 @@ interface ConnectionState {
   disconnect: () => void;
 }
 
-// Derive the hub host from the page's own host so the app connects back to the
-// machine that served it — works whether that's localhost, a VM's IP, or a
-// port-forwarded host. Mirrors the RobotModel asset-host derivation. Override
-// explicitly with VITE_HUB_URL when the hub lives elsewhere.
-const hubHost =
-  typeof location !== 'undefined' && location.hostname
-    ? location.hostname
-    : 'localhost';
-
-const DEFAULT_URL =
-  (import.meta.env.VITE_HUB_URL as string | undefined) ??
-  `ws://${hubHost}:7777?role=client`;
+// The hub base (scheme/host/port) is derived in one place — `core/hubUrl.ts` —
+// so the client connection, playback source, and UI publisher source all agree
+// (and pick `wss:` on an HTTPS page, and honor the ⚙ / VITE_HUB_URL override).
 
 /** The auto-derived hub URL used when no explicit URL is set (⚙ Settings blank).
  * Exported so the settings "Connect" control can target it. */
-export const autoHubUrl = DEFAULT_URL;
+export const autoHubUrl = autoHubClientUrl();
 
 // A persisted hub URL (⚙ settings) wins over the auto-derived default.
-const INITIAL_URL = persistedHubUrl() || DEFAULT_URL;
+const INITIAL_URL = hubClientUrl();
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
   status: 'disconnected',

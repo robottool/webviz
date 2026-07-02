@@ -16,6 +16,7 @@
  */
 
 import type { ChannelInfo, Encoding } from '@webviz/protocol';
+import { hubSourceUrl } from './hubUrl.js';
 
 export type PlaybackStatus = 'idle' | 'playing' | 'paused' | 'ended';
 
@@ -38,14 +39,6 @@ interface PlayRecord {
 }
 
 const SPEEDS = [0.5, 1, 2, 4];
-
-function hubSourceUrl(): string {
-  const host =
-    typeof location !== 'undefined' && location.hostname
-      ? location.hostname
-      : 'localhost';
-  return `ws://${host}:7777?role=source&id=replay`;
-}
 
 class Player {
   private records: PlayRecord[] = [];
@@ -168,7 +161,7 @@ class Player {
   private openSource(): void {
     let ws: WebSocket;
     try {
-      ws = new WebSocket(hubSourceUrl());
+      ws = new WebSocket(hubSourceUrl('replay'));
     } catch {
       return;
     }

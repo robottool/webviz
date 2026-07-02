@@ -38,6 +38,20 @@ interface SubState {
   boundId: number | null;
   entries: Set<SubEntry>;
   unreg: Map<SubEntry, () => void>;
+  /** Effective `max_hz` last sent to the hub (null = uncapped; undefined = not
+   * yet sent). Tracked so a change in the subscriber mix re-issues `subscribe`. */
+  sentMaxHz: number | null | undefined;
+}
+
+/** Fastest rate the mix of subscribers needs: null (uncapped) if any wants all
+ * frames, else the max requested `max_hz`. */
+function effectiveMaxHz(entries: Iterable<SubEntry>): number | null {
+  let max = 0;
+  for (const e of entries) {
+    if (e.maxHz == null || e.maxHz <= 0) return null;
+    if (e.maxHz > max) max = e.maxHz;
+  }
+  return max === 0 ? null : max;
 }
 
 export class HubClient {
@@ -134,7 +148,7 @@ export class HubClient {
   ): () => void {
     let sub = this.subs.get(channelName);
     if (!sub) {
-      sub = { boundId: null, entries: new Set(), unreg: new Map() };
+      sub = { boundId: null, entries: new Set(), unreg: new Map(), sentMaxHz: undefined };
       this.subs.set(channelName, sub);
     }
     const entry: SubEntry = { handler, maxHz: opts?.maxHz };
@@ -155,6 +169,9 @@ export class HubClient {
           this.send({ op: 'unsubscribe', channels: [{ id: s.boundId }] });
         }
         this.subs.delete(channelName);
+      } else {
+        // A remaining subscriber may now want a different (lower) rate.
+        this.bindSub(channelName);
       }
     };
   }
@@ -176,6 +193,7 @@ export class HubClient {
       for (const u of sub.unreg.values()) u();
       sub.unreg.clear();
       sub.boundId = null;
+      sub.sentMaxHz = undefined; // re-send once it reappears
       return;
     }
 
@@ -188,9 +206,14 @@ export class HubClient {
     for (const e of sub.entries) {
       if (!sub.unreg.has(e)) sub.unreg.set(e, this.router.register(id, e.handler));
     }
-    if (idChanged || force) {
-      const maxHz = [...sub.entries].map((e) => e.maxHz).find((v) => v != null);
-      this.send({ op: 'subscribe', channels: [{ id, max_hz: maxHz }] });
+    // Every handler shares this one client socket, so the hub can only throttle
+    // it at a single rate. Request the *fastest* rate any subscriber wants (a
+    // slower panel is over-delivered, never starved); if any wants it uncapped,
+    // stay uncapped. Re-issue `subscribe` whenever that effective rate changes.
+    const maxHz = effectiveMaxHz(sub.entries);
+    if (idChanged || force || maxHz !== sub.sentMaxHz) {
+      sub.sentMaxHz = maxHz;
+      this.send({ op: 'subscribe', channels: [{ id, max_hz: maxHz ?? undefined }] });
     }
   }
 

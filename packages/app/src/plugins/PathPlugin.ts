@@ -24,6 +24,10 @@ export class PathPlugin implements DisplayPlugin {
   private frameId = '';
   private unsub: (() => void) | null = null;
   private unsubChannelList: (() => void) | null = null;
+  /** Reused position buffer/attribute — grown only when a path needs more room,
+   * so a re-published path doesn't allocate a fresh typed array every frame. */
+  private posBuf = new Float32Array(0);
+  private posAttr: THREE.BufferAttribute | null = null;
 
   constructor(
     readonly id: string,
@@ -62,15 +66,21 @@ export class PathPlugin implements DisplayPlugin {
 
   private update(path: Path): void {
     this.frameId = path.frame_id;
-    const pos = new Float32Array(path.poses.length * 3);
+    const n = path.poses.length;
+    if (this.posBuf.length < n * 3) {
+      this.posBuf = new Float32Array(n * 3);
+      this.posAttr = new THREE.BufferAttribute(this.posBuf, 3);
+      this.posAttr.setUsage(THREE.DynamicDrawUsage);
+      this.geometry.setAttribute('position', this.posAttr);
+    }
+    const buf = this.posBuf;
     path.poses.forEach((p, i) => {
-      pos[i * 3] = p.position[0];
-      pos[i * 3 + 1] = p.position[1];
-      pos[i * 3 + 2] = p.position[2];
+      buf[i * 3] = p.position[0];
+      buf[i * 3 + 1] = p.position[1];
+      buf[i * 3 + 2] = p.position[2];
     });
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.geometry.setDrawRange(0, path.poses.length);
-    this.geometry.computeBoundingSphere();
+    if (this.posAttr) this.posAttr.needsUpdate = true;
+    this.geometry.setDrawRange(0, n);
     this.material.color.setRGB(path.color[0], path.color[1], path.color[2]);
     this.material.opacity = path.color[3];
     this.material.transparent = path.color[3] < 1;

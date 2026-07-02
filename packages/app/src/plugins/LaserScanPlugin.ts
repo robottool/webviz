@@ -26,6 +26,10 @@ export class LaserScanPlugin implements DisplayPlugin {
   private frameId = '';
   private unsub: (() => void) | null = null;
   private unsubChannelList: (() => void) | null = null;
+  /** Reused position buffer/attribute — grown only when a scan needs more room,
+   * so a high-rate stream doesn't allocate a fresh typed array every frame. */
+  private posBuf = new Float32Array(0);
+  private posAttr: THREE.BufferAttribute | null = null;
 
   constructor(
     readonly id: string,
@@ -69,17 +73,28 @@ export class LaserScanPlugin implements DisplayPlugin {
 
   private update(scan: LaserScan): void {
     this.frameId = scan.frame_id;
-    const pos: number[] = [];
-    for (let i = 0; i < scan.ranges.length; i++) {
+    const n = scan.ranges.length;
+    // Grow (and re-bind the attribute) only when a scan needs more room than the
+    // current buffer holds; otherwise write in place and flag it for re-upload.
+    if (this.posBuf.length < n * 3) {
+      this.posBuf = new Float32Array(n * 3);
+      this.posAttr = new THREE.BufferAttribute(this.posBuf, 3);
+      this.posAttr.setUsage(THREE.DynamicDrawUsage);
+      this.geometry.setAttribute('position', this.posAttr);
+    }
+    const buf = this.posBuf;
+    let w = 0;
+    for (let i = 0; i < n; i++) {
       const r = scan.ranges[i];
       if (typeof r !== 'number' || !Number.isFinite(r)) continue;
       if (r < scan.range_min || r > scan.range_max) continue;
       const a = scan.angle_min + i * scan.angle_increment;
-      pos.push(r * Math.cos(a), r * Math.sin(a), 0);
+      buf[w++] = r * Math.cos(a);
+      buf[w++] = r * Math.sin(a);
+      buf[w++] = 0;
     }
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-    this.geometry.setDrawRange(0, pos.length / 3);
-    this.geometry.computeBoundingSphere();
+    if (this.posAttr) this.posAttr.needsUpdate = true;
+    this.geometry.setDrawRange(0, w / 3);
     this.ctx.scene.requestRender();
   }
 
