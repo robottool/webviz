@@ -16,6 +16,11 @@ const UP_Z = new THREE.Vector3(0, 0, 1);
  * the camera, in the +Z-up robotics world (+X forward, +Y left, +Z up). */
 const HOME_DIR = new THREE.Vector3(1, -1, 0.7);
 
+/** Small +Z offset (metres) for the origin axes so they sit just above the grid
+ * plane and don't z-fight the floor lines, while still being depth-tested (and
+ * thus occluded) against the robot. Imperceptible at robot scale. */
+const ORIGIN_AXES_LIFT = 0.002;
+
 /** Read a CSS custom property (set by the theme) as a THREE.Color, falling back
  * to a literal when it's unset or we're off-DOM. Lets the viewport track the
  * theme palette without duplicating colours here. */
@@ -94,13 +99,12 @@ export class SceneManager {
       new THREE.Color(AXIS_COLORS.y),
       new THREE.Color(AXIS_COLORS.z),
     );
-    // The X/Y axes lie in the grid's z=0 plane, so they z-fight and get hidden by
-    // the grid lines at some angles. Draw the origin frame on top regardless of
-    // depth so it's always visible (the conventional origin-gizmo behaviour).
-    const axesMat = this.axes.material as THREE.LineBasicMaterial;
-    axesMat.depthTest = false;
-    axesMat.depthWrite = false;
-    this.axes.renderOrder = 2;
+    // The X/Y axes lie in the grid's z=0 plane, so drawn at exactly z=0 they
+    // z-fight with the grid lines. Lift the origin frame a hair above the grid so
+    // it wins cleanly against the floor — but keep depth testing ON so the robot
+    // still occludes it (it marks the robot's base; it shouldn't punch through
+    // the mesh like an always-on-top overlay).
+    this.axes.position.z = ORIGIN_AXES_LIFT;
     this.scene.add(this.axes);
 
     this.scene.add(this.root);
