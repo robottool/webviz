@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
+import { AXIS_COLORS } from '../core/axisColors.js';
 
 interface Settings {
   axis_scale: number;
@@ -137,6 +138,13 @@ export class TFFramesPlugin implements DisplayPlugin {
   private makeVisual(name: string): FrameVisual {
     const group = new THREE.Group();
     const axes = new THREE.AxesHelper(1);
+    // Flatten AxesHelper's red→orange gradient to the shared soft palette
+    // (core/axisColors.ts) so frames match the world axes / nav gizmo / marker.
+    axes.setColors(
+      new THREE.Color(AXIS_COLORS.x),
+      new THREE.Color(AXIS_COLORS.y),
+      new THREE.Color(AXIS_COLORS.z),
+    );
     axes.scale.setScalar(this.settings.axis_scale);
     group.add(axes);
 

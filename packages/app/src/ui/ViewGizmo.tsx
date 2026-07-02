@@ -14,6 +14,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { SceneManager } from '../core/SceneManager.js';
+import { AXIS_COLORS } from '../core/axisColors.js';
 
 interface Axis {
   world: THREE.Vector3;
@@ -22,14 +23,14 @@ interface Axis {
   positive: boolean;
 }
 
-// X red / Y green / Z blue — matches the scene's AxesHelper convention.
+// X red / Y green / Z blue — shared soft palette (core/axisColors.ts).
 const AXES: Axis[] = [
-  { world: new THREE.Vector3(1, 0, 0), color: '#e0566f', label: 'X', positive: true },
-  { world: new THREE.Vector3(0, 1, 0), color: '#7bc043', label: 'Y', positive: true },
-  { world: new THREE.Vector3(0, 0, 1), color: '#4a9eea', label: 'Z', positive: true },
-  { world: new THREE.Vector3(-1, 0, 0), color: '#e0566f', label: '', positive: false },
-  { world: new THREE.Vector3(0, -1, 0), color: '#7bc043', label: '', positive: false },
-  { world: new THREE.Vector3(0, 0, -1), color: '#4a9eea', label: '', positive: false },
+  { world: new THREE.Vector3(1, 0, 0), color: AXIS_COLORS.x, label: 'X', positive: true },
+  { world: new THREE.Vector3(0, 1, 0), color: AXIS_COLORS.y, label: 'Y', positive: true },
+  { world: new THREE.Vector3(0, 0, 1), color: AXIS_COLORS.z, label: 'Z', positive: true },
+  { world: new THREE.Vector3(-1, 0, 0), color: AXIS_COLORS.x, label: '', positive: false },
+  { world: new THREE.Vector3(0, -1, 0), color: AXIS_COLORS.y, label: '', positive: false },
+  { world: new THREE.Vector3(0, 0, -1), color: AXIS_COLORS.z, label: '', positive: false },
 ];
 
 const SIZE = 80; // CSS px (square)

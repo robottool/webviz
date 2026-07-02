@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { AXIS_COLORS } from './axisColors.js';
 
 const UP_Z = new THREE.Vector3(0, 0, 1);
 
@@ -86,12 +87,12 @@ export class SceneManager {
 
     this.axes = new THREE.AxesHelper(1);
     // AxesHelper defaults to a per-axis gradient (red→orange, green→…, blue→…);
-    // paint each axis a single solid colour instead, matching the navigation
-    // gizmo's axis colours (ui/ViewGizmo.tsx) so the two read consistently.
+    // paint each axis a single solid colour instead, from the shared soft
+    // palette (core/axisColors.ts) so every axis indicator reads consistently.
     this.axes.setColors(
-      new THREE.Color('#e0566f'),
-      new THREE.Color('#7bc043'),
-      new THREE.Color('#4a9eea'),
+      new THREE.Color(AXIS_COLORS.x),
+      new THREE.Color(AXIS_COLORS.y),
+      new THREE.Color(AXIS_COLORS.z),
     );
     // The X/Y axes lie in the grid's z=0 plane, so they z-fight and get hidden by
     // the grid lines at some angles. Draw the origin frame on top regardless of

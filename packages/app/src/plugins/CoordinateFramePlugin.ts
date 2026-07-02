@@ -11,7 +11,8 @@
  * TransformControls to the same node — one `translate`, one `rotate`. Whichever
  * handle you grab drives the drag; the other (and OrbitControls) is frozen for
  * the duration. There is no separate triad mesh — the gizmo handles *are* the
- * visual.
+ * visual, repainted from the shared soft axis palette (`core/axisColors.ts`) so
+ * they match the world axes / nav gizmo instead of three.js's pure-primary RGB.
  *
  * The gizmo lives under the scene root, which *is* the fixed frame and sits at
  * world identity, so the authored transform is expressed directly in the fixed
@@ -33,6 +34,7 @@ import type {
   PropSchema,
 } from '../core/plugin.js';
 import { sourcePublisher, type PublishHandle } from '../core/sourcePublisher.js';
+import { AXIS_COLORS } from '../core/axisColors.js';
 
 interface Settings {
   channel: string;
@@ -108,6 +110,7 @@ export class CoordinateFramePlugin implements DisplayPlugin {
     const tc = new TransformControls(scene.camera, scene.renderer.domElement);
     tc.setMode(mode);
     this.pruneGizmo(tc, mode);
+    this.recolorGizmo(tc);
     // Always local: the handles follow the frame's orientation, so rotating a
     // ring visibly turns the move arrows with it (what you want when posing a
     // target). World space would keep the arrows axis-aligned and hide the turn.
@@ -159,6 +162,31 @@ export class CoordinateFramePlugin implements DisplayPlugin {
       if (!map) continue;
       for (const child of [...map.children]) {
         if (remove.includes(child.name)) map.remove(child);
+      }
+    }
+  }
+
+  /**
+   * Repaint the gizmo's X/Y/Z handles (translate arrows + rotate rings) with the
+   * shared soft axis palette instead of three.js's pure-primary RGB, so the
+   * marker matches the world axes / nav gizmo. `_gizmo` is internal (same cast as
+   * `pruneGizmo`); we also pin each material's cached `_color` because
+   * TransformControls restores the base colour from it every frame.
+   */
+  private recolorGizmo(tc: TransformControls): void {
+    const giz = (tc as unknown as { _gizmo?: { gizmo: Record<string, THREE.Object3D> } })._gizmo;
+    if (!giz) return;
+    const byAxis: Record<string, string> = { X: AXIS_COLORS.x, Y: AXIS_COLORS.y, Z: AXIS_COLORS.z };
+    for (const group of [giz.gizmo.translate, giz.gizmo.rotate]) {
+      if (!group) continue;
+      for (const child of group.children) {
+        const hex = byAxis[child.name];
+        const raw = (child as THREE.Mesh).material;
+        if (!hex || Array.isArray(raw)) continue;
+        const mat = raw as THREE.Material & { color?: THREE.Color; _color?: THREE.Color };
+        if (!mat.color) continue;
+        mat.color.set(hex);
+        mat._color = mat.color.clone(); // survive TransformControls' per-frame restore
       }
     }
   }

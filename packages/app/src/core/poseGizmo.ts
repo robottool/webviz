@@ -14,12 +14,15 @@
  *
  * The node whose transform the gizmo drives is `.node`; the owner adds it (and
  * the returned helpers) to a container it manages, and reads `.node`'s
- * position/quaternion as the authored pose.
+ * position/quaternion as the authored pose. The X/Y/Z handles are repainted from
+ * the shared soft axis palette (`core/axisColors.ts`) so they match the world
+ * axes / nav gizmo instead of three.js's pure-primary RGB.
  */
 
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { SceneManager } from './SceneManager.js';
+import { AXIS_COLORS } from './axisColors.js';
 
 const RING_SCALE = 0.55; // rotate rings drawn smaller than the move arrows
 
@@ -66,6 +69,7 @@ export class PoseGizmo {
     const tc = new TransformControls(this.scene.camera, this.scene.renderer.domElement);
     tc.setMode(mode);
     this.prune(tc, mode);
+    this.recolor(tc);
     // Local space so the handles follow the node's orientation.
     tc.setSpace('local');
     tc.size = this.sizeFor(mode);
@@ -107,6 +111,28 @@ export class PoseGizmo {
       if (!map) continue;
       for (const child of [...map.children]) {
         if (remove.includes(child.name)) map.remove(child);
+      }
+    }
+  }
+
+  /** Repaint the X/Y/Z handles (translate arrows + rotate rings) with the shared
+   * soft axis palette instead of three.js's pure-primary RGB. `_gizmo` is
+   * internal (same cast as `prune`); pin each material's cached `_color` too, as
+   * TransformControls restores the base colour from it every frame. */
+  private recolor(tc: TransformControls): void {
+    const giz = (tc as unknown as { _gizmo?: { gizmo: Record<string, THREE.Object3D> } })._gizmo;
+    if (!giz) return;
+    const byAxis: Record<string, string> = { X: AXIS_COLORS.x, Y: AXIS_COLORS.y, Z: AXIS_COLORS.z };
+    for (const group of [giz.gizmo.translate, giz.gizmo.rotate]) {
+      if (!group) continue;
+      for (const child of group.children) {
+        const hex = byAxis[child.name];
+        const raw = (child as THREE.Mesh).material;
+        if (!hex || Array.isArray(raw)) continue;
+        const mat = raw as THREE.Material & { color?: THREE.Color; _color?: THREE.Color };
+        if (!mat.color) continue;
+        mat.color.set(hex);
+        mat._color = mat.color.clone(); // survive TransformControls' per-frame restore
       }
     }
   }
