@@ -111,6 +111,7 @@ export class CoordinateFramePlugin implements DisplayPlugin {
     tc.setMode(mode);
     this.pruneGizmo(tc, mode);
     this.recolorGizmo(tc);
+    if (mode === 'translate') this.keepArrowsVisible(tc);
     // Always local: the handles follow the frame's orientation, so rotating a
     // ring visibly turns the move arrows with it (what you want when posing a
     // target). World space would keep the arrows axis-aligned and hide the turn.
@@ -193,6 +194,43 @@ export class CoordinateFramePlugin implements DisplayPlugin {
         mat._color = mat.color.clone(); // survive TransformControls' per-frame restore
       }
     }
+  }
+
+  /**
+   * Undo TransformControls' "hide the axis you're looking down"
+   * (`AXIS_HIDE_THRESHOLD`) so the marker stays fully visible from every
+   * viewpoint. That hide zeroes a handle's scale + visibility inside the gizmo's
+   * own `updateMatrixWorld` each frame, so we wrap it and, afterwards, re-show
+   * the X/Y/Z handles — restoring their scale from a still-visible sibling (all
+   * share one constant screen size, and you can only look down one axis at once).
+   */
+  private keepArrowsVisible(tc: TransformControls): void {
+    const giz = (
+      tc as unknown as {
+        _gizmo?: {
+          gizmo: Record<string, THREE.Object3D>;
+          picker: Record<string, THREE.Object3D>;
+          updateMatrixWorld: (force?: boolean) => void;
+        };
+      }
+    )._gizmo;
+    if (!giz) return;
+    const isAxis = (n: string) => n === 'X' || n === 'Y' || n === 'Z';
+    const orig = giz.updateMatrixWorld.bind(giz);
+    giz.updateMatrixWorld = (force?: boolean) => {
+      orig(force);
+      for (const group of [giz.gizmo.translate, giz.picker.translate]) {
+        if (!group) continue;
+        const axes = group.children.filter((c) => isAxis(c.name));
+        let s = 0;
+        for (const a of axes) s = Math.max(s, a.scale.x);
+        if (s <= 0) continue;
+        for (const a of axes) {
+          a.visible = true;
+          a.scale.setScalar(s);
+        }
+      }
+    };
   }
 
   // --- pose <-> gizmo node sync ---

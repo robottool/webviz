@@ -70,6 +70,7 @@ export class PoseGizmo {
     tc.setMode(mode);
     this.prune(tc, mode);
     this.recolor(tc);
+    if (mode === 'translate') this.keepArrowsVisible(tc);
     // Local space so the handles follow the node's orientation.
     tc.setSpace('local');
     tc.size = this.sizeFor(mode);
@@ -139,6 +140,40 @@ export class PoseGizmo {
         mat._color = mat.color.clone(); // survive TransformControls' per-frame restore
       }
     }
+  }
+
+  /** Undo TransformControls' "hide the axis you're looking down"
+   * (`AXIS_HIDE_THRESHOLD`) so the gizmo stays fully visible from every
+   * viewpoint. The hide zeroes a handle's scale + visibility inside the gizmo's
+   * own `updateMatrixWorld` each frame, so wrap it and re-show the X/Y/Z handles
+   * afterwards, restoring their scale from a still-visible sibling. */
+  private keepArrowsVisible(tc: TransformControls): void {
+    const giz = (
+      tc as unknown as {
+        _gizmo?: {
+          gizmo: Record<string, THREE.Object3D>;
+          picker: Record<string, THREE.Object3D>;
+          updateMatrixWorld: (force?: boolean) => void;
+        };
+      }
+    )._gizmo;
+    if (!giz) return;
+    const isAxis = (n: string) => n === 'X' || n === 'Y' || n === 'Z';
+    const orig = giz.updateMatrixWorld.bind(giz);
+    giz.updateMatrixWorld = (force?: boolean) => {
+      orig(force);
+      for (const group of [giz.gizmo.translate, giz.picker.translate]) {
+        if (!group) continue;
+        const axes = group.children.filter((c) => isAxis(c.name));
+        let s = 0;
+        for (const a of axes) s = Math.max(s, a.scale.x);
+        if (s <= 0) continue;
+        for (const a of axes) {
+          a.visible = true;
+          a.scale.setScalar(s);
+        }
+      }
+    };
   }
 
   dispose(): void {
