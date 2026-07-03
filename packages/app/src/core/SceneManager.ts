@@ -61,6 +61,7 @@ export class SceneManager {
   private fitStableFrames = 0;
   private lastContentRadius = -1;
   private readonly tmpBox = new THREE.Box3();
+  private readonly tmpBox2 = new THREE.Box3();
   private readonly tmpSphere = new THREE.Sphere();
 
   constructor(container: HTMLElement) {
@@ -271,10 +272,11 @@ export class SceneManager {
    * otherwise blow the fit up and fling the camera far away. */
   private contentBox(target: THREE.Box3): THREE.Box3 {
     target.makeEmpty();
-    this.root.updateMatrixWorld(true);
+    const b = this.tmpBox2;
     for (const child of this.root.children) {
       if (child.userData.noFit) continue;
-      target.expandByObject(child);
+      b.setFromObject(child);
+      if (!b.isEmpty()) target.union(b);
     }
     return target;
   }
