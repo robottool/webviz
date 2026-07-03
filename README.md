@@ -9,10 +9,23 @@ Browser-based visualization platform for robots and real-time systems.
 
 This is a **hub-less static build** (deployed to GitHub Pages by `.github/workflows/pages.yml`
 on every push to `main`), so only the fully client-side features work: open the **3D** tab,
-load a URDF — including the bundled **demo robot** via RobotModel properties → *Load URDF…* —
-and drive it with the manual joint sliders or the in-browser **IK "drag the TCP"** gizmo.
-Everything that needs the hub — live channels, the Python/ROS demos, recording playback, and
-saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
+load a URDF, and drive it with the manual joint sliders or the in-browser **IK "drag the TCP"**
+gizmo. Everything that needs the hub — live channels, the Python/ROS demos, recording playback,
+and saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
+
+**Try it with a real robot:** in the 3D tab open RobotModel properties → *Load URDF…*, then
+either click **Load demo robot**, or choose **From URL** and paste a GitHub link to a `.urdf` —
+e.g. the UR5:
+
+```
+https://github.com/Gepetto/example-robot-data/blob/master/robots/ur_description/urdf/ur5_gripper.urdf
+```
+
+Leave the **meshes URL** blank — they auto-resolve from the same repo (the URDF's `package://`
+refs point there). Only set it if a robot's meshes live somewhere the auto-resolver can't find
+them, pointing at the folder that holds them, e.g.
+`https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
+URL loading needs a CORS-enabled host and a flat, non-`.xacro` URDF.
 
 ## Status: vertical slice
 
@@ -86,19 +99,8 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
   per-joint sliders + a base-pose input to preview. Once your pipeline publishes
   `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
-- **Or load one from a URL (no local files)**: in *Load URDF…* → **From URL**,
-  paste a GitHub link to a `.urdf`. Try the UR5:
-
-  ```
-  https://github.com/Gepetto/example-robot-data/blob/master/robots/ur_description/urdf/ur5_gripper.urdf
-  ```
-
-  Leave the **meshes URL** blank — they resolve automatically from the same repo
-  (the URDF's `package://` refs point there). Only needed if a robot's meshes live
-  somewhere the auto-resolver can't find them: point it at the folder holding them,
-  e.g. `https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
-  Works for CORS-enabled hosts and flat, non-`.xacro` URDFs. This is fully
-  client-side, so it also works on the [live demo](https://robottool.github.io/webviz/).
+  (To load a robot straight from a URL — with a ready-to-paste UR5 example — see
+  [Live demo](#live-demo) above.)
 - **Drag the robot by its tool tip (IK)**: in RobotModel properties (serial arms only)
   set Joints to **IK (drag TCP)** — the arm freezes at its current pose and a gizmo
   appears on the tool tip. Drag it and the arm follows in real time. Two solver backends:
