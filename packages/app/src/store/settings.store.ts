@@ -6,6 +6,7 @@
  *   - syncWindowMs   → TimeManager reorder window (§8)
  *   - recordingCapMB → in-memory recording cap (core/recorder.ts)
  *   - hubUrl         → default connection URL (read by connection.store; '' = auto)
+ *   - angleUnit / lengthUnit → display units (read by components; values stay SI)
  *
  * Most settings in WebViz live on a tab or display (TabConfig.settings / the
  * Properties panel) — this store deliberately holds only the cross-cutting ones.
@@ -18,12 +19,21 @@ import { recorder } from '../core/recorder.js';
 /** Visual themes. `industry` (light) is the default; styles.css holds the palettes. */
 export type ThemeId = 'telemetry' | 'minimal' | 'vibrant' | 'industry';
 
+/** Display units (values are stored/sent in SI — rad + m — and only converted
+ * for display; e.g. the RobotModel joint sliders + TCP nudge). */
+export type AngleUnit = 'deg' | 'rad';
+export type LengthUnit = 'm' | 'mm';
+
 export interface Settings {
   theme: ThemeId;
   syncWindowMs: number;
   recordingCapMB: number;
   /** Empty string means "derive from location" (see connection.store). */
   hubUrl: string;
+  /** Angular display unit (revolute joints, TCP roll/pitch/yaw). */
+  angleUnit: AngleUnit;
+  /** Linear display unit (prismatic joints, TCP x/y/z). */
+  lengthUnit: LengthUnit;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +41,8 @@ export const DEFAULT_SETTINGS: Settings = {
   syncWindowMs: 20,
   recordingCapMB: 256,
   hubUrl: '',
+  angleUnit: 'deg',
+  lengthUnit: 'mm',
 };
 
 const LS_KEY = 'webviz.settings';
@@ -79,6 +91,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       syncWindowMs: patch.syncWindowMs ?? get().syncWindowMs,
       recordingCapMB: patch.recordingCapMB ?? get().recordingCapMB,
       hubUrl: patch.hubUrl ?? get().hubUrl,
+      angleUnit: patch.angleUnit ?? get().angleUnit,
+      lengthUnit: patch.lengthUnit ?? get().lengthUnit,
     };
     apply(next);
     persist(next);

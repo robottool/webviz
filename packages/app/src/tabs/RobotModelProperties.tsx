@@ -10,6 +10,11 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hubClient } from '../protocol/HubClient.js';
+import {
+  useSettingsStore,
+  type AngleUnit,
+  type LengthUnit,
+} from '../store/settings.store.js';
 import type {
   IkBackend,
   JointInfo,
@@ -514,6 +519,15 @@ export function RobotModelProperties({
 
 const DEG = 180 / Math.PI;
 
+// Values are stored/sent in SI (rad, m); these convert to the display unit only.
+const angleToDisp = (rad: number, u: AngleUnit) => (u === 'deg' ? rad * DEG : rad);
+const angleFromDisp = (v: number, u: AngleUnit) => (u === 'deg' ? v / DEG : v);
+const lenToDisp = (m: number, u: LengthUnit) => (u === 'mm' ? m * 1000 : m);
+const lenFromDisp = (v: number, u: LengthUnit) => (u === 'mm' ? v / 1000 : v);
+const angleFmt = (u: AngleUnit) => (u === 'deg' ? { step: 1, precision: 1 } : { step: 0.02, precision: 3 });
+const lenFmt = (u: LengthUnit) => (u === 'mm' ? { step: 10, precision: 1 } : { step: 0.01, precision: 4 });
+const angleSym = (u: AngleUnit) => (u === 'deg' ? '°' : 'rad');
+
 /** One DOF row: −/+ nudge buttons around a numeric input. */
 function NudgeRow({
   label,
@@ -561,6 +575,8 @@ function TcpNudge({
   onChange: () => void;
   force: () => void;
 }) {
+  const angleUnit = useSettingsStore((st) => st.angleUnit);
+  const lengthUnit = useSettingsStore((st) => st.lengthUnit);
   const tcp = plugin.getIkTcpPose();
   if (!tcp) return null;
   const setPose = (patch: Partial<typeof tcp>) => {
@@ -570,14 +586,17 @@ function TcpNudge({
     onChange();
     force();
   };
+  const lf = lenFmt(lengthUnit);
+  const af = angleFmt(angleUnit);
+  const asym = angleSym(angleUnit);
   return (
     <>
-      <NudgeRow label="X (m)" value={tcp.x} step={0.01} precision={4} onSet={(v) => setPose({ x: v })} />
-      <NudgeRow label="Y (m)" value={tcp.y} step={0.01} precision={4} onSet={(v) => setPose({ y: v })} />
-      <NudgeRow label="Z (m)" value={tcp.z} step={0.01} precision={4} onSet={(v) => setPose({ z: v })} />
-      <NudgeRow label="Roll (°)" value={tcp.roll * DEG} step={1} precision={1} onSet={(v) => setPose({ roll: v / DEG })} />
-      <NudgeRow label="Pitch (°)" value={tcp.pitch * DEG} step={1} precision={1} onSet={(v) => setPose({ pitch: v / DEG })} />
-      <NudgeRow label="Yaw (°)" value={tcp.yaw * DEG} step={1} precision={1} onSet={(v) => setPose({ yaw: v / DEG })} />
+      <NudgeRow label={`X (${lengthUnit})`} value={lenToDisp(tcp.x, lengthUnit)} step={lf.step} precision={lf.precision} onSet={(v) => setPose({ x: lenFromDisp(v, lengthUnit) })} />
+      <NudgeRow label={`Y (${lengthUnit})`} value={lenToDisp(tcp.y, lengthUnit)} step={lf.step} precision={lf.precision} onSet={(v) => setPose({ y: lenFromDisp(v, lengthUnit) })} />
+      <NudgeRow label={`Z (${lengthUnit})`} value={lenToDisp(tcp.z, lengthUnit)} step={lf.step} precision={lf.precision} onSet={(v) => setPose({ z: lenFromDisp(v, lengthUnit) })} />
+      <NudgeRow label={`Roll (${asym})`} value={angleToDisp(tcp.roll, angleUnit)} step={af.step} precision={af.precision} onSet={(v) => setPose({ roll: angleFromDisp(v, angleUnit) })} />
+      <NudgeRow label={`Pitch (${asym})`} value={angleToDisp(tcp.pitch, angleUnit)} step={af.step} precision={af.precision} onSet={(v) => setPose({ pitch: angleFromDisp(v, angleUnit) })} />
+      <NudgeRow label={`Yaw (${asym})`} value={angleToDisp(tcp.yaw, angleUnit)} step={af.step} precision={af.precision} onSet={(v) => setPose({ yaw: angleFromDisp(v, angleUnit) })} />
     </>
   );
 }
@@ -597,25 +616,39 @@ function JointSliders({
   onSet: (name: string, value: number) => void;
   onReset?: () => void;
 }) {
+  const angleUnit = useSettingsStore((st) => st.angleUnit);
+  const lengthUnit = useSettingsStore((st) => st.lengthUnit);
   return (
     <div className="joint-sliders">
       {joints.map((j) => {
-        const val = valueOf(j.name);
+        // Prismatic joints are linear (length unit); the rest are angular.
+        const linear = j.type === 'prismatic';
+        const toDisp = (v: number) =>
+          linear ? lenToDisp(v, lengthUnit) : angleToDisp(v, angleUnit);
+        const fromDisp = (v: number) =>
+          linear ? lenFromDisp(v, lengthUnit) : angleFromDisp(v, angleUnit);
+        const fmt = linear ? lenFmt(lengthUnit) : angleFmt(angleUnit);
+        const unit = linear ? lengthUnit : angleSym(angleUnit);
+        const lo = toDisp(j.lower);
+        const hi = toDisp(j.upper);
+        const val = toDisp(valueOf(j.name));
         return (
           <div className="joint-slider" key={j.name}>
             <div className="joint-slider-head">
               <span className="joint-name" title={j.name}>
                 {j.name}
               </span>
-              <span className="joint-val">{val.toFixed(3)}</span>
+              <span className="joint-val">
+                {val.toFixed(fmt.precision)} {unit}
+              </span>
             </div>
             <input
               type="range"
-              min={j.lower}
-              max={j.upper}
-              step={(j.upper - j.lower) / 200 || 0.01}
+              min={lo}
+              max={hi}
+              step={(hi - lo) / 200 || 0.01}
               value={val}
-              onChange={(e) => onSet(j.name, Number(e.target.value))}
+              onChange={(e) => onSet(j.name, fromDisp(Number(e.target.value)))}
             />
           </div>
         );

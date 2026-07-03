@@ -9,7 +9,12 @@ import {
   autoHubUrl,
 } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
-import { useSettingsStore, type ThemeId } from '../store/settings.store.js';
+import {
+  useSettingsStore,
+  type ThemeId,
+  type AngleUnit,
+  type LengthUnit,
+} from '../store/settings.store.js';
 import { recorder } from '../core/recorder.js';
 import { player } from '../core/player.js';
 import { Icon } from './icons.js';
@@ -39,7 +44,7 @@ export function TopBar() {
 function SettingsMenu() {
   const btnRef = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const { theme, syncWindowMs, recordingCapMB, hubUrl, set, reset } =
+  const { theme, syncWindowMs, recordingCapMB, hubUrl, angleUnit, lengthUnit, set, reset } =
     useSettingsStore();
   const { status, connect } = useConnectionStore();
 
@@ -89,6 +94,26 @@ function SettingsMenu() {
                   <option value="minimal">Clean minimal</option>
                   <option value="vibrant">Vibrant</option>
                   <option value="industry">Industry (light)</option>
+                </select>
+              </label>
+              <label className="settings-row">
+                <span>Angle unit</span>
+                <select
+                  value={angleUnit}
+                  onChange={(e) => set({ angleUnit: e.target.value as AngleUnit })}
+                >
+                  <option value="deg">Degrees (°)</option>
+                  <option value="rad">Radians (rad)</option>
+                </select>
+              </label>
+              <label className="settings-row">
+                <span>Length unit</span>
+                <select
+                  value={lengthUnit}
+                  onChange={(e) => set({ lengthUnit: e.target.value as LengthUnit })}
+                >
+                  <option value="mm">Millimetres (mm)</option>
+                  <option value="m">Metres (m)</option>
                 </select>
               </label>
               <label className="settings-row">
