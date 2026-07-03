@@ -3,6 +3,17 @@
 Browser-based visualization platform for robots and real-time systems.
 **Protocol-first · Source-agnostic · Tiling-panel workspace.** See `webviz_design_doc_v3.md`.
 
+## Live demo
+
+**▶ [robottool.github.io/webviz](https://robottool.github.io/webviz/)** — try it in your browser, no install.
+
+This is a **hub-less static build** (deployed to GitHub Pages by `.github/workflows/pages.yml`
+on every push to `main`), so only the fully client-side features work: open the **3D** tab,
+load a URDF — including the bundled **demo robot** via RobotModel properties → *Load URDF…* —
+and drive it with the manual joint sliders or the in-browser **IK "drag the TCP"** gizmo.
+Everything that needs the hub — live channels, the Python/ROS demos, recording playback, and
+saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
+
 ## Status: vertical slice
 
 This repository implements the foundational spine described in the design doc, with all six
@@ -19,7 +30,7 @@ tabs and the full display-plugin catalogue now live:
 
 ## Quick start
 
-First-time setup on Linux — installs the toolchain (Node ≥ 20 via nvm if missing, pnpm,
+First-time setup on Linux — installs the toolchain (Node ≥ 22 via nvm if missing, pnpm,
 JS deps, builds the protocol package) and a Python venv with `websockets` for the demos.
 It's idempotent, so re-running only fills in what's missing:
 
