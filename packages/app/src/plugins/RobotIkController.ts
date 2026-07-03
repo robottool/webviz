@@ -142,6 +142,23 @@ export class RobotIkController {
     return this.residual;
   }
 
+  /** The gizmo (TCP target) pose as xyz metres + XYZ-euler radians, in the fixed
+   * frame — for the Cartesian nudge panel. */
+  getTcpPose(): { x: number; y: number; z: number; roll: number; pitch: number; yaw: number } {
+    const p = this.gizmo.node.position;
+    const e = new THREE.Euler().setFromQuaternion(this.gizmo.node.quaternion, 'XYZ');
+    return { x: p.x, y: p.y, z: p.z, roll: e.x, pitch: e.y, yaw: e.z };
+  }
+
+  /** Set the gizmo (TCP target) pose absolutely and re-solve (native) / re-stream
+   * (external) — the Cartesian nudge buttons + inputs drive this. */
+  setTcpPose(pose: { x: number; y: number; z: number; roll: number; pitch: number; yaw: number }): void {
+    this.gizmo.node.position.set(pose.x, pose.y, pose.z);
+    this.gizmo.node.quaternion.setFromEuler(new THREE.Euler(pose.roll, pose.pitch, pose.yaw, 'XYZ'));
+    this.onGizmoChange();
+    this.scene.requestRender();
+  }
+
   dispose(): void {
     if (this.keepalive != null) clearInterval(this.keepalive);
     this.keepalive = null;

@@ -58,7 +58,7 @@ export function RobotModelProperties({
   // The URL load is a two-step wizard: pick a source ('choose'), then for a URL
   // give the meshes location ('mesh').
   const [loadStep, setLoadStep] = useState<'choose' | 'mesh'>('choose');
-  const [collapsed, setCollapsed] = useState({ urdf: false, live: false });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const autoCollapsed = useRef(false);
   const folderRef = useRef<HTMLInputElement>(null);
   const meshFolderRef = useRef<HTMLInputElement>(null);
@@ -97,10 +97,10 @@ export function RobotModelProperties({
   useEffect(() => {
     if (cleanLoad && !autoCollapsed.current) {
       autoCollapsed.current = true;
-      setCollapsed({ urdf: true, live: true });
+      setCollapsed((c) => ({ ...c, urdf: true, live: true }));
     } else if (!report.loaded) {
       autoCollapsed.current = false;
-      setCollapsed({ urdf: false, live: false });
+      setCollapsed((c) => ({ ...c, urdf: false, live: false }));
     }
   }, [cleanLoad, report.loaded]);
 
@@ -194,7 +194,7 @@ export function RobotModelProperties({
     setShowLoad(true);
   };
 
-  const sectionToggle = (title: string, key: 'urdf' | 'live') => (
+  const sectionToggle = (title: string, key: string) => (
     <div
       className="props-section"
       style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' }}
@@ -471,15 +471,22 @@ export function RobotModelProperties({
               </label>
               {s.jog && (
                 <>
-                  <JointSliders
-                    joints={report.jointInfo}
-                    valueOf={(name) => plugin.getJointValue(name)}
-                    onSet={(name, v) => {
-                      plugin.setIkJoint(name, v);
-                      onChange();
-                      force();
-                    }}
-                  />
+                  {sectionToggle('Joints', 'jogJoints')}
+                  {!collapsed.jogJoints && (
+                    <JointSliders
+                      joints={report.jointInfo}
+                      valueOf={(name) => plugin.getJointValue(name)}
+                      onSet={(name, v) => {
+                        plugin.setIkJoint(name, v);
+                        onChange();
+                        force();
+                      }}
+                    />
+                  )}
+                  {sectionToggle('TCP nudge', 'jogTcp')}
+                  {!collapsed.jogTcp && (
+                    <TcpNudge plugin={plugin} onChange={onChange} force={force} />
+                  )}
                   <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
                 </>
               )}
@@ -502,6 +509,76 @@ export function RobotModelProperties({
         </>
       )}
     </div>
+  );
+}
+
+const DEG = 180 / Math.PI;
+
+/** One DOF row: −/+ nudge buttons around a numeric input. */
+function NudgeRow({
+  label,
+  value,
+  step,
+  precision,
+  onSet,
+}: {
+  label: string;
+  value: number;
+  step: number;
+  precision: number;
+  onSet: (v: number) => void;
+}) {
+  return (
+    <label className="props-row">
+      <span>{label}</span>
+      <span style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        <button style={{ padding: '0 7px' }} onClick={() => onSet(value - step)}>
+          −
+        </button>
+        <input
+          type="number"
+          step={step}
+          value={Number(value.toFixed(precision))}
+          style={{ width: 72 }}
+          onChange={(e) => onSet(Number(e.target.value))}
+        />
+        <button style={{ padding: '0 7px' }} onClick={() => onSet(value + step)}>
+          +
+        </button>
+      </span>
+    </label>
+  );
+}
+
+/** Cartesian TCP-target nudge: xyz (m) + roll/pitch/yaw (°) with input + ± steps.
+ * Reads/writes the IK gizmo pose (fixed frame), which re-solves on every change. */
+function TcpNudge({
+  plugin,
+  onChange,
+  force,
+}: {
+  plugin: RobotModelPlugin;
+  onChange: () => void;
+  force: () => void;
+}) {
+  const tcp = plugin.getIkTcpPose();
+  if (!tcp) return null;
+  const setPose = (patch: Partial<typeof tcp>) => {
+    const cur = plugin.getIkTcpPose();
+    if (!cur) return;
+    plugin.setIkTcpPose({ ...cur, ...patch });
+    onChange();
+    force();
+  };
+  return (
+    <>
+      <NudgeRow label="X (m)" value={tcp.x} step={0.01} precision={4} onSet={(v) => setPose({ x: v })} />
+      <NudgeRow label="Y (m)" value={tcp.y} step={0.01} precision={4} onSet={(v) => setPose({ y: v })} />
+      <NudgeRow label="Z (m)" value={tcp.z} step={0.01} precision={4} onSet={(v) => setPose({ z: v })} />
+      <NudgeRow label="Roll (°)" value={tcp.roll * DEG} step={1} precision={1} onSet={(v) => setPose({ roll: v / DEG })} />
+      <NudgeRow label="Pitch (°)" value={tcp.pitch * DEG} step={1} precision={1} onSet={(v) => setPose({ pitch: v / DEG })} />
+      <NudgeRow label="Yaw (°)" value={tcp.yaw * DEG} step={1} precision={1} onSet={(v) => setPose({ yaw: v / DEG })} />
+    </>
   );
 }
 

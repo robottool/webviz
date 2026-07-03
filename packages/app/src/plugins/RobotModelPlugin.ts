@@ -796,6 +796,16 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ik?.sendTarget();
   }
 
+  /** Current TCP target pose (xyz m + XYZ-euler rad), or null when not jogging. */
+  getIkTcpPose(): ReturnType<RobotIkController['getTcpPose']> | null {
+    return this.ik?.getTcpPose() ?? null;
+  }
+
+  /** Set the TCP target pose absolutely (the Cartesian nudge panel). */
+  setIkTcpPose(pose: Parameters<RobotIkController['setTcpPose']>[0]): void {
+    this.ik?.setTcpPose(pose);
+  }
+
   // --- DisplayPlugin contract ---
 
   /** RobotModel uses a custom Properties UI, so the schema form is unused. */
