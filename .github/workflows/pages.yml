@@ -30,6 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Turns Pages on and sets its source to "GitHub Actions" if it isn't
+      # already, so the deploy job's actions/deploy-pages doesn't 404 on a repo
+      # where Pages was never enabled by hand.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       # No `version:` here — pnpm/action-setup@v4 reads it from the
       # `packageManager` field in package.json (pnpm@9.x). Specifying it in both
       # places errors with "Multiple versions of pnpm specified".
