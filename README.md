@@ -1,7 +1,7 @@
 # WebViz
 
 Browser-based visualization platform for robots and real-time systems.
-**Protocol-first · Source-agnostic · Tiling-panel workspace.** See `webviz_design_doc_v3.md`.
+**Protocol-first · Source-agnostic · Tiling-panel workspace.**
 
 ## Live demo
 
@@ -27,10 +27,10 @@ them, pointing at the folder that holds them, e.g.
 `https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
 URL loading needs a CORS-enabled host and a flat, non-`.xacro` URDF.
 
-## Status: vertical slice
+## What's built
 
-This repository implements the foundational spine described in the design doc, with all six
-tabs and the full display-plugin catalogue now live:
+All six tabs and the full 3D display-plugin catalogue are live, built on a shared `wv/*` wire
+protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
 
 | Package | What works |
 |---|---|
