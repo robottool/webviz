@@ -15,7 +15,7 @@ import { create } from 'zustand';
 import { hubClient } from '../protocol/HubClient.js';
 import { recorder } from '../core/recorder.js';
 
-/** Visual themes. `telemetry` is the default; styles.css holds the palettes. */
+/** Visual themes. `industry` (light) is the default; styles.css holds the palettes. */
 export type ThemeId = 'telemetry' | 'minimal' | 'vibrant' | 'industry';
 
 export interface Settings {
@@ -27,7 +27,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'telemetry',
+  theme: 'industry',
   syncWindowMs: 20,
   recordingCapMB: 256,
   hubUrl: '',

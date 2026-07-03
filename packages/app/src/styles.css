@@ -2,10 +2,10 @@
    doc targets Tailwind + shadcn/ui for the full build. */
 
 :root {
-  /* Default theme: "sci-fi telemetry" (deep dark, cyan accent, soft glow).
-     The other two themes below override these vars via [data-theme], set on
-     <html> by store/settings.store.ts. Keeping the default in :root means the
-     correct look paints before JS runs (no theme flash for the default). */
+  /* Base palette: "sci-fi telemetry" (deep dark, cyan accent, soft glow). The
+     other themes below override these vars via [data-theme], set on <html> by
+     store/settings.store.ts. The app default is the light `industry` theme,
+     pre-set on <html> in index.html so it paints before JS runs (no flash). */
   --bg: #0a0e14;
   --bg-2: #111722;
   --bg-3: #1a2330;
