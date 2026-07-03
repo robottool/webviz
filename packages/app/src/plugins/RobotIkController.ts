@@ -75,6 +75,7 @@ export class RobotIkController {
   private readonly targetChannel: string;
   private readonly solutionChannel: string;
   private targetHandle: PublishHandle | null = null;
+  private jointHandle: PublishHandle | null = null;
   private unsubSolution: (() => void) | null = null;
   private keepalive: ReturnType<typeof setInterval> | null = null;
   private lastPubMs = 0;
@@ -83,6 +84,8 @@ export class RobotIkController {
    * keepalive re-asserts *this* snapshot, not the live gizmo, so dragging after
    * a send doesn't move the real robot until the next send. */
   private lastSentPose: PoseStamped | null = null;
+  /** Joint config last committed via `sendTarget()`, re-asserted by the keepalive. */
+  private lastSentJoints: JointState | null = null;
 
   // Scratch objects reused across the solve loop to avoid per-iteration allocation.
   private readonly targetP = new THREE.Vector3();
@@ -145,6 +148,8 @@ export class RobotIkController {
     this.unsubSolution = null;
     this.targetHandle?.close();
     this.targetHandle = null;
+    this.jointHandle?.close();
+    this.jointHandle = null;
     this.gizmo.dispose();
     this.scene.removeObject(this.gizmoId);
   }
@@ -180,6 +185,12 @@ export class RobotIkController {
     };
   }
 
+  /** The actuated chain's current joint values as a wv/JointState (the solve
+   * the on-screen preview is showing). */
+  private currentJointState(): JointState {
+    return { names: this.chain.map((c) => c.name), positions: [...this.q] };
+  }
+
   /** External backend: stream the *live* gizmo pose (rate-capped unless forced). */
   private publishTarget(force = false): void {
     if (!this.targetHandle) return;
@@ -190,21 +201,29 @@ export class RobotIkController {
   }
 
   /**
-   * One-shot "Send to robot" (native backend): publish the current TCP pose as
-   * the wv/Pose target once, then **hold** it — a keepalive re-asserts this exact
-   * snapshot so a controller that (re)connects still latches it, and so dragging
-   * the preview afterwards doesn't command the robot until the next send. Unlike
-   * the external backend, nothing is published while you drag.
+   * One-shot "Send to robot" (native backend): publish the current TCP **pose**
+   * (`wv/Pose` on `targetChannel`) *and* the previewed **joint config**
+   * (`wv/JointState` on `solutionChannel`) once, then **hold** both — a keepalive
+   * re-asserts these exact snapshots so a controller that (re)connects still
+   * latches them, and so dragging the preview afterwards doesn't command the
+   * robot until the next send. Unlike the external backend, nothing is published
+   * while you drag.
    */
   sendTarget(): void {
     if (!this.targetHandle) {
       this.targetHandle = sourcePublisher.advertise(this.targetChannel, 'wv/Pose', 'json');
     }
+    if (!this.jointHandle) {
+      this.jointHandle = sourcePublisher.advertise(this.solutionChannel, 'wv/JointState', 'json');
+    }
     this.lastSentPose = this.currentTargetPose();
+    this.lastSentJoints = this.currentJointState();
     this.targetHandle.send(this.lastSentPose);
+    this.jointHandle.send(this.lastSentJoints);
     if (this.keepalive == null) {
       this.keepalive = setInterval(() => {
         if (this.lastSentPose) this.targetHandle?.send(this.lastSentPose);
+        if (this.lastSentJoints) this.jointHandle?.send(this.lastSentJoints);
       }, KEEPALIVE_MS);
     }
   }

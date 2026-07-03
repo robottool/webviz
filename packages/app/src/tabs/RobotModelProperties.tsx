@@ -606,7 +606,7 @@ function IkPanel({
             />
           </label>
           <label className="props-row">
-            <span>Command ch.</span>
+            <span>Pose ch.</span>
             <input
               type="text"
               value={target}
@@ -617,8 +617,20 @@ function IkPanel({
               }}
             />
           </label>
+          <label className="props-row">
+            <span>Joints ch.</span>
+            <input
+              type="text"
+              value={solution}
+              onChange={(e) => setSolution(e.target.value)}
+              onBlur={() => set({ ik_solution_channel: solution.trim() })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') set({ ik_solution_channel: solution.trim() });
+              }}
+            />
+          </label>
           <button style={{ width: '100%', marginTop: 4 }} onClick={sendToRobot}>
-            {sent ? 'Pose sent ✓' : 'Send pose to robot'}
+            {sent ? 'Sent ✓' : 'Send to robot'}
           </button>
         </>
       )}
@@ -652,7 +664,7 @@ function IkPanel({
         Drag the gizmo on the tool tip; the base pose is frozen while in IK.{' '}
         {external
           ? 'External: the target is published as wv/Pose and joints are read back from your solver.'
-          : 'Native: solved in-browser as a preview — the real robot is untouched while you drag. Click “Send pose to robot” to publish the final pose as wv/Pose (held until you send again).'}
+          : 'Native: solved in-browser as a preview — the real robot is untouched while you drag. Click “Send to robot” to publish the final pose (wv/Pose) and joint config (wv/JointState); both are held until you send again.'}
       </p>
     </div>
   );
