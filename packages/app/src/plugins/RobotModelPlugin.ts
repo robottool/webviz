@@ -247,17 +247,19 @@ export class RobotModelPlugin implements DisplayPlugin {
       jog: false,
       ...(initial as Partial<Settings> | undefined),
     };
-    // Legacy: IK used to be a joint_source; it's now the separate `jog` toggle
-    // (the monitor keeps showing live joints while the shadow is jogged). And the
-    // monitor is channel-only now — manual joints moved to jog's fine-tune.
-    if ((this.settings.joint_source as string) === 'ik') {
-      this.settings.joint_source = 'channel';
-      this.settings.jog = true;
-    } else if (this.settings.joint_source === 'manual') {
+    // Legacy: joints used to have `ik`/`manual` sources; the monitor is
+    // channel-only now (IK moved to the `jog` toggle, manual to jog's fine-tune).
+    if (
+      (this.settings.joint_source as string) === 'ik' ||
+      this.settings.joint_source === 'manual'
+    ) {
       this.settings.joint_source = 'channel';
     }
     // Base pose is channel-only too (manual pose input removed); default identity.
     if (this.settings.pose_source === 'manual') this.settings.pose_source = 'channel';
+    // Jog is a transient command mode — always start unchecked, so a reload never
+    // comes up with a stale shadow overlapping the monitor.
+    this.settings.jog = false;
   }
 
   async initialize(ctx: PluginContext): Promise<void> {
@@ -605,6 +607,11 @@ export class RobotModelPlugin implements DisplayPlugin {
     if (pose) {
       this.robot.position.copy(pose.position);
       this.robot.quaternion.copy(pose.quaternion);
+    } else {
+      // Base frame not in the TF tree (e.g. no transforms yet) → sit at the
+      // origin rather than holding a stale pose.
+      this.robot.position.set(0, 0, 0);
+      this.robot.quaternion.identity();
     }
   }
 
