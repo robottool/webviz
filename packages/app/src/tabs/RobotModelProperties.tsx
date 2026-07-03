@@ -38,6 +38,7 @@ interface RMSettings {
   ik_backend: IkBackend;
   ik_target_channel: string;
   ik_solution_channel: string;
+  jog: boolean;
 }
 
 export function RobotModelProperties({
@@ -399,41 +400,14 @@ export function RobotModelProperties({
           {/* --- Joints --- */}
           <div className="props-section">Joints</div>
           <Segmented<JointSource>
-            value={s.joint_source}
+            value={s.joint_source === 'ik' ? 'channel' : s.joint_source}
             options={[
               ['manual', 'Manual'],
               ['channel', 'Channel'],
-              // IK only makes sense for a serial arm; hide it otherwise.
-              ...(plugin.isIkFeasible()
-                ? ([['ik', 'IK (drag TCP)']] as Array<[JointSource, string]>)
-                : []),
             ]}
             onChange={(v) => set({ joint_source: v })}
           />
-          {!plugin.isIkFeasible() && (
-            <p className="report muted" style={{ marginTop: 4 }}>
-              IK unavailable — needs a serial arm (≥ 2 movable joints in one chain).
-            </p>
-          )}
-          {s.joint_source === 'ik' ? (
-            <>
-              <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
-              <div className="props-section" style={{ marginTop: 10 }}>
-                Joints (fine-tune)
-              </div>
-              {/* Sliders stay live in IK mode: they track the solved values and
-                  nudging one re-snaps the gizmo to the new tool-tip pose. */}
-              <JointSliders
-                joints={report.jointInfo}
-                valueOf={(name) => plugin.getJointValue(name)}
-                onSet={(name, v) => {
-                  plugin.setIkJoint(name, v);
-                  onChange();
-                  force();
-                }}
-              />
-            </>
-          ) : s.joint_source === 'channel' ? (
+          {s.joint_source === 'channel' ? (
             <label className="props-row">
               <span>Joints ch.</span>
               <Select
@@ -457,6 +431,42 @@ export function RobotModelProperties({
                 force();
               }}
             />
+          )}
+
+          {/* --- Jog (command): drive a translucent shadow so the solid robot
+              keeps showing live state. Serial arms only. --- */}
+          {plugin.isIkFeasible() && (
+            <>
+              <div className="props-section">Jog (command)</div>
+              <label className="props-row">
+                <span>Jog mode</span>
+                <input
+                  type="checkbox"
+                  checked={s.jog}
+                  onChange={(e) => set({ jog: e.target.checked })}
+                />
+              </label>
+              {s.jog && (
+                <>
+                  <p className="report muted" style={{ marginTop: 4 }}>
+                    Driving a translucent shadow — the solid robot stays on live state.
+                  </p>
+                  <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
+                  <div className="props-section" style={{ marginTop: 10 }}>
+                    Joints (fine-tune)
+                  </div>
+                  <JointSliders
+                    joints={report.jointInfo}
+                    valueOf={(name) => plugin.getJointValue(name)}
+                    onSet={(name, v) => {
+                      plugin.setIkJoint(name, v);
+                      onChange();
+                      force();
+                    }}
+                  />
+                </>
+              )}
+            </>
           )}
 
           {/* --- Base pose --- */}

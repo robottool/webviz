@@ -38,6 +38,9 @@ export type UrdfSource = 'channel' | 'local';
  * pan/wheel joint) and IK would be meaningless, so the option is hidden. */
 const MIN_IK_DOF = 2;
 
+/** Opacity of the jog shadow clone, so the live monitor reads through it. */
+const JOG_SHADOW_OPACITY = 0.45;
+
 export interface JointInfo {
   name: string;
   type: URDFRobot['joints'][string]['jointType'];
@@ -81,6 +84,10 @@ interface Settings {
   ik_target_channel: string;
   /** External IK: channel the solved joints are read from (wv/JointState). */
   ik_solution_channel: string;
+  /** Jog mode: when on, a translucent **shadow** clone of the robot is spawned as
+   * the interactive command target (drag-IK + joint jog), leaving the base robot
+   * as the live-state monitor. */
+  jog: boolean;
 }
 
 /** Normalize a GitHub web URL (`/blob/`, `/tree/`, `/raw/`) to a raw-content
@@ -201,8 +208,14 @@ export class RobotModelPlugin implements DisplayPlugin {
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
   private manualDirty = false;
-  /** Active only while `joint_source === 'ik'` — owns the drag gizmo + solver. */
+  /** Active only in jog mode — owns the drag gizmo + solver, mounted on the shadow. */
   private ik: RobotIkController | null = null;
+  /** Translucent clone spawned in jog mode (the interactive command target); the
+   * base `robot` stays as the live-state monitor. */
+  private jogShadow: URDFRobot | null = null;
+  private get jogId(): string {
+    return `${this.id}:jog`;
+  }
   /** Whether the loaded robot is arm-like enough to offer IK (cached at load). */
   private ikFeasible = false;
 
@@ -232,8 +245,15 @@ export class RobotModelPlugin implements DisplayPlugin {
       ik_backend: 'native',
       ik_target_channel: 'tcp_target',
       ik_solution_channel: 'ik/joint_states',
+      jog: false,
       ...(initial as Partial<Settings> | undefined),
     };
+    // Legacy: IK used to be a joint_source; it's now the separate `jog` toggle
+    // (the monitor keeps showing live joints while the shadow is jogged).
+    if ((this.settings.joint_source as string) === 'ik') {
+      this.settings.joint_source = 'channel';
+      this.settings.jog = true;
+    }
   }
 
   async initialize(ctx: PluginContext): Promise<void> {
@@ -529,15 +549,13 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.manualDirty = true;
     this.jointsDirty = true;
     this.ctx.scene.addObject(this.id, robot);
-    // A (re)load replaces the object the IK gizmo/chain referenced. Rebuild it if
-    // we're in IK mode and the new robot is arm-like; otherwise fall back to the
-    // channel source so an infeasible robot never sits stuck in IK.
-    if (this.settings.joint_source === 'ik') {
-      if (this.ikFeasible) this.enterIk();
-      else {
-        this.settings.joint_source = 'channel';
-        this.exitIk();
-      }
+    // A (re)load replaces the robot the jog shadow was cloned from, so rebuild
+    // the shadow if we're jogging and the new robot is arm-like; otherwise leave
+    // jog off so an infeasible robot never sits stuck.
+    this.exitJog();
+    if (this.settings.jog) {
+      if (this.ikFeasible) this.enterJog();
+      else this.settings.jog = false;
     }
     // Re-frame the viewport once the (re)loaded robot's meshes settle.
     this.ctx.scene.armAutoFit();
@@ -568,9 +586,8 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   onRender(): void {
     if (!this.robot) return;
-    // In IK mode the controller owns the joints and the base is frozen at the
-    // pose it held on entry, so skip both the joint and pose application here.
-    if (this.settings.joint_source === 'ik') return;
+    // The monitor robot always shows current state; the jog shadow (if any) is
+    // driven independently by its own IK controller, not here.
     if (this.settings.joint_source === 'manual') {
       if (this.manualDirty) {
         this.applyManualJoints();
@@ -652,38 +669,65 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ctx.scene.requestRender();
   }
 
-  /** Current value of a joint on the loaded robot, in any mode — lets the sliders
-   * reflect live IK/channel values, not just the stored manual value. */
+  /** The robot the joint sliders read/drive: the jog shadow in jog mode, else the
+   * monitor. Lets the sliders reflect live IK/channel values, not just the stored
+   * manual value. */
+  private jointRobot(): URDFRobot | null {
+    return this.settings.jog && this.jogShadow ? this.jogShadow : this.robot;
+  }
+
+  /** Current value of a joint on the active robot. */
   getJointValue(name: string): number {
-    const j = this.robot?.joints[name] as unknown as
+    const j = this.jointRobot()?.joints[name] as unknown as
       | { jointValue?: number[]; angle?: number }
       | undefined;
     return j?.jointValue?.[0] ?? j?.angle ?? 0;
   }
 
-  /** IK mode: nudge one joint directly and re-snap the gizmo/seed to the new TCP,
-   * so the manual sliders stay usable while dragging the tool tip. */
+  /** Jog mode: nudge one joint on the shadow and re-snap the gizmo/seed to the
+   * new TCP, so the sliders stay usable while dragging the tool tip. */
   setIkJoint(name: string, value: number): void {
-    if (this.settings.joint_source !== 'ik' || !this.robot) return;
-    this.robot.setJointValue(name, value);
-    this.robot.updateMatrixWorld(true);
+    if (!this.settings.jog || !this.jogShadow) return;
+    this.jogShadow.setJointValue(name, value);
+    this.jogShadow.updateMatrixWorld(true);
     this.ik?.reseed();
     this.ctx.scene.requestRender();
   }
 
-  // --- IK mode (drag the TCP) ---
+  // --- jog mode (drag-the-TCP shadow) ---
 
-  /** Enter / rebuild IK mode: mint a controller that drops a gizmo on the TCP
-   * link and solves as it's dragged. No-op until a robot is loaded. */
-  private enterIk(): void {
+  /** Enter / rebuild jog mode: clone the monitor into a translucent **shadow**
+   * (the interactive command target), and mount the IK controller on it so the
+   * live monitor keeps showing current state. No-op until a robot is loaded. */
+  private enterJog(): void {
     if (!this.ctx || !this.robot) return;
-    this.ik?.dispose();
-    this.ik = null;
+    this.exitJog();
+    if (!this.ikFeasible) return;
     if (!this.settings.tcp_link || !(this.settings.tcp_link in this.robot.links)) {
       this.settings.tcp_link = this.defaultTcpLink();
     }
+    // Clone the robot at its current config; give the clone independent geometry
+    // + faded materials so it renders as a ghost and disposes without touching
+    // the monitor (three.js clone shares both by default).
+    const shadow = this.robot.clone(true) as URDFRobot;
+    shadow.traverse((n) => {
+      const mesh = n as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry = mesh.geometry.clone();
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (!mat) return;
+      const fade = (m: THREE.Material): THREE.Material => {
+        const c = m.clone();
+        c.transparent = true;
+        c.opacity = JOG_SHADOW_OPACITY;
+        c.depthWrite = false;
+        return c;
+      };
+      mesh.material = Array.isArray(mat) ? mat.map(fade) : fade(mat);
+    });
+    this.jogShadow = shadow;
+    this.ctx.scene.addObject(this.jogId, shadow);
     this.ik = new RobotIkController(
-      this.robot,
+      shadow,
       this.settings.tcp_link,
       this.ctx.scene,
       this.id,
@@ -699,12 +743,14 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.emitChange();
   }
 
-  /** Leave IK mode: tear down the gizmo and let channel/manual resume. */
-  private exitIk(): void {
+  /** Leave jog mode: tear down the gizmo + shadow; the monitor is unaffected. */
+  private exitJog(): void {
     this.ik?.dispose();
     this.ik = null;
-    this.manualDirty = true;
-    this.jointsDirty = true;
+    if (this.jogShadow) {
+      this.ctx?.scene.removeObject(this.jogId);
+      this.jogShadow = null;
+    }
     this.ctx?.scene.requestRender();
   }
 
@@ -794,21 +840,24 @@ export class RobotModelPlugin implements DisplayPlugin {
     if ('joint_channel' in patch) this.bindJoints();
     if ('urdf_source' in patch) this.bindModel();
     if ('joint_source' in patch && this.settings.joint_source !== prevJointSource) {
-      if (this.settings.joint_source === 'ik') this.enterIk();
-      else if (prevJointSource === 'ik') this.exitIk();
       this.manualDirty = true;
       this.jointsDirty = true;
     }
-    // Changing the TCP link or the solver backend/channels while in IK rebuilds
-    // the chain + gizmo (and re-wires the external pub/sub).
+    // Jog toggle: spawn / tear down the shadow command target.
+    if ('jog' in patch) {
+      if (this.settings.jog && this.ikFeasible) this.enterJog();
+      else this.exitJog();
+    }
+    // Changing the TCP link or the solver backend/channels while jogging rebuilds
+    // the shadow's chain + gizmo (and re-wires the external pub/sub).
     if (
-      this.settings.joint_source === 'ik' &&
+      this.settings.jog &&
       ('tcp_link' in patch ||
         'ik_backend' in patch ||
         'ik_target_channel' in patch ||
         'ik_solution_channel' in patch)
     ) {
-      this.enterIk();
+      this.enterJog();
     }
     if ('ik_orient_weight' in patch && this.ik) this.ik.wRot = this.settings.ik_orient_weight;
     if ('opacity' in patch) this.applyOpacity();
@@ -820,7 +869,7 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.unsubChannelList?.();
     this.unsubModel?.();
     this.unsubJoints?.();
-    this.ik?.dispose();
+    this.exitJog();
     this.localResolver?.dispose();
     this.ctx?.scene.removeObject(this.id);
     this.robot = null;
