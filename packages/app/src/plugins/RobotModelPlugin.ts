@@ -652,6 +652,25 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ctx.scene.requestRender();
   }
 
+  /** Current value of a joint on the loaded robot, in any mode — lets the sliders
+   * reflect live IK/channel values, not just the stored manual value. */
+  getJointValue(name: string): number {
+    const j = this.robot?.joints[name] as unknown as
+      | { jointValue?: number[]; angle?: number }
+      | undefined;
+    return j?.jointValue?.[0] ?? j?.angle ?? 0;
+  }
+
+  /** IK mode: nudge one joint directly and re-snap the gizmo/seed to the new TCP,
+   * so the manual sliders stay usable while dragging the tool tip. */
+  setIkJoint(name: string, value: number): void {
+    if (this.settings.joint_source !== 'ik' || !this.robot) return;
+    this.robot.setJointValue(name, value);
+    this.robot.updateMatrixWorld(true);
+    this.ik?.reseed();
+    this.ctx.scene.requestRender();
+  }
+
   // --- IK mode (drag the TCP) ---
 
   /** Enter / rebuild IK mode: mint a controller that drops a gizmo on the TCP

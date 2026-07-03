@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import { hubClient } from '../protocol/HubClient.js';
 import type {
   IkBackend,
+  JointInfo,
   JointSource,
   RobotModelPlugin,
   Source,
@@ -415,7 +416,23 @@ export function RobotModelProperties({
             </p>
           )}
           {s.joint_source === 'ik' ? (
-            <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
+            <>
+              <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
+              <div className="props-section" style={{ marginTop: 10 }}>
+                Joints (fine-tune)
+              </div>
+              {/* Sliders stay live in IK mode: they track the solved values and
+                  nudging one re-snaps the gizmo to the new tool-tip pose. */}
+              <JointSliders
+                joints={report.jointInfo}
+                valueOf={(name) => plugin.getJointValue(name)}
+                onSet={(name, v) => {
+                  plugin.setIkJoint(name, v);
+                  onChange();
+                  force();
+                }}
+              />
+            </>
           ) : s.joint_source === 'channel' ? (
             <label className="props-row">
               <span>Joints ch.</span>
@@ -426,43 +443,20 @@ export function RobotModelProperties({
               />
             </label>
           ) : (
-            <div className="joint-sliders">
-              {report.jointInfo.map((j) => {
-                const val = s.manual_joints[j.name] ?? 0;
-                return (
-                  <div className="joint-slider" key={j.name}>
-                    <div className="joint-slider-head">
-                      <span className="joint-name" title={j.name}>
-                        {j.name}
-                      </span>
-                      <span className="joint-val">{val.toFixed(3)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={j.lower}
-                      max={j.upper}
-                      step={(j.upper - j.lower) / 200 || 0.01}
-                      value={val}
-                      onChange={(e) => {
-                        plugin.setManualJoint(j.name, Number(e.target.value));
-                        onChange();
-                        force();
-                      }}
-                    />
-                  </div>
-                );
-              })}
-              <button
-                style={{ width: '100%', marginTop: 4 }}
-                onClick={() => {
-                  for (const j of report.jointInfo) plugin.setManualJoint(j.name, 0);
-                  onChange();
-                  force();
-                }}
-              >
-                Reset joints
-              </button>
-            </div>
+            <JointSliders
+              joints={report.jointInfo}
+              valueOf={(name) => s.manual_joints[name] ?? 0}
+              onSet={(name, v) => {
+                plugin.setManualJoint(name, v);
+                onChange();
+                force();
+              }}
+              onReset={() => {
+                for (const j of report.jointInfo) plugin.setManualJoint(j.name, 0);
+                onChange();
+                force();
+              }}
+            />
           )}
 
           {/* --- Base pose --- */}
@@ -509,6 +503,53 @@ export function RobotModelProperties({
             />
           </label>
         </>
+      )}
+    </div>
+  );
+}
+
+/** Per-joint limit sliders. Shared by Manual mode and IK "fine-tune": the caller
+ * supplies where each value comes from (`valueOf`) and what a change does
+ * (`onSet`) — stored manual value + setManualJoint, or the live robot value +
+ * setIkJoint. `onReset` (Manual only) zeroes them all. */
+function JointSliders({
+  joints,
+  valueOf,
+  onSet,
+  onReset,
+}: {
+  joints: JointInfo[];
+  valueOf: (name: string) => number;
+  onSet: (name: string, value: number) => void;
+  onReset?: () => void;
+}) {
+  return (
+    <div className="joint-sliders">
+      {joints.map((j) => {
+        const val = valueOf(j.name);
+        return (
+          <div className="joint-slider" key={j.name}>
+            <div className="joint-slider-head">
+              <span className="joint-name" title={j.name}>
+                {j.name}
+              </span>
+              <span className="joint-val">{val.toFixed(3)}</span>
+            </div>
+            <input
+              type="range"
+              min={j.lower}
+              max={j.upper}
+              step={(j.upper - j.lower) / 200 || 0.01}
+              value={val}
+              onChange={(e) => onSet(j.name, Number(e.target.value))}
+            />
+          </div>
+        );
+      })}
+      {onReset && (
+        <button style={{ width: '100%', marginTop: 4 }} onClick={onReset}>
+          Reset joints
+        </button>
       )}
     </div>
   );
