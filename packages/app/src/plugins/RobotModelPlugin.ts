@@ -256,6 +256,8 @@ export class RobotModelPlugin implements DisplayPlugin {
     } else if (this.settings.joint_source === 'manual') {
       this.settings.joint_source = 'channel';
     }
+    // Base pose is channel-only too (manual pose input removed); default identity.
+    if (this.settings.pose_source === 'manual') this.settings.pose_source = 'channel';
   }
 
   async initialize(ctx: PluginContext): Promise<void> {
@@ -321,9 +323,6 @@ export class RobotModelPlugin implements DisplayPlugin {
   /** Load a URDF from a locally-picked folder (the file list of an <input>). */
   async loadFromFiles(files: File[]): Promise<void> {
     this.localFiles = files;
-    // A local file has no live data, so preview it with manual joints + pose.
-    this.settings.joint_source = 'manual';
-    this.settings.pose_source = 'manual';
     await this.reloadLocal();
   }
 
@@ -343,8 +342,6 @@ export class RobotModelPlugin implements DisplayPlugin {
         return { path: p, blob: await res.blob() };
       }),
     );
-    this.settings.joint_source = 'manual';
-    this.settings.pose_source = 'manual';
     await this.reloadLocal();
   }
 
@@ -363,8 +360,6 @@ export class RobotModelPlugin implements DisplayPlugin {
   async loadFromUrdfUrl(input: string, meshBaseInput?: string): Promise<void> {
     const url = toRawUrl(input.trim());
     this.settings.urdf_source = 'local';
-    this.settings.joint_source = 'manual';
-    this.settings.pose_source = 'manual';
     this.localResolver?.dispose();
     this.localResolver = null;
     this.localFiles = [];
@@ -592,8 +587,7 @@ export class RobotModelPlugin implements DisplayPlugin {
       this.applyJoints(this.latestJoints);
       this.jointsDirty = false;
     }
-    if (this.settings.pose_source === 'manual') this.applyManualPose();
-    else this.placeInFixedFrame();
+    this.placeInFixedFrame();
   }
 
   private applyJoints(js: JointState): void {
@@ -604,13 +598,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     }
   }
 
-
-  private applyManualPose(): void {
-    if (!this.robot) return;
-    const { xyz, rpy } = this.settings.manual_pose;
-    this.robot.position.set(xyz[0], xyz[1], xyz[2]);
-    this.robot.quaternion.setFromEuler(new THREE.Euler(rpy[0], rpy[1], rpy[2], 'ZYX'));
-  }
 
   private placeInFixedFrame(): void {
     if (!this.robot) return;
@@ -643,13 +630,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ctx?.scene.requestRender();
   }
 
-  // --- manual setters (called by the Properties UI) ---
-
-
-  setManualPose(patch: Partial<ManualPose>): void {
-    this.settings.manual_pose = { ...this.settings.manual_pose, ...patch };
-    this.ctx.scene.requestRender();
-  }
 
   /** The robot the joint sliders read/drive: the jog shadow in jog mode, else the
    * monitor. Lets the sliders reflect live IK/channel values, not just the stored

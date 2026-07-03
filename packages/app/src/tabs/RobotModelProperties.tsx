@@ -397,8 +397,9 @@ export function RobotModelProperties({
 
       {report.loaded && (
         <>
-          {/* --- Joints: monitor is channel-driven (0 until data arrives). --- */}
-          <div className="props-section">Joints</div>
+          {/* --- Live state: joints from a channel + base pose from TF; both
+              show 0 / identity until data arrives. --- */}
+          <div className="props-section">Live state</div>
           <label className="props-row">
             <span>Joints ch.</span>
             <Select
@@ -407,26 +408,32 @@ export function RobotModelProperties({
               onChange={(v) => set({ joint_channel: v })}
             />
           </label>
+          <label className="props-row">
+            <span>Base frame</span>
+            <input
+              type="text"
+              value={s.root_frame}
+              onChange={(e) => set({ root_frame: e.target.value })}
+            />
+          </label>
 
-          {/* --- Jog (command): drive a translucent shadow so the solid robot
-              keeps showing live state. Serial arms only. --- */}
+          {/* --- Jog: drive a translucent shadow so the solid robot keeps
+              showing live state. Serial arms only. --- */}
           {plugin.isIkFeasible() && (
             <>
-              <div className="props-section">Jog (command)</div>
-              <label className="props-row">
-                <span>Jog mode</span>
+              <label
+                className="props-section"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              >
                 <input
                   type="checkbox"
                   checked={s.jog}
                   onChange={(e) => set({ jog: e.target.checked })}
                 />
+                Jog
               </label>
               {s.jog && (
                 <>
-                  <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
-                  <div className="props-section" style={{ marginTop: 10 }}>
-                    Joints (fine-tune)
-                  </div>
                   <JointSliders
                     joints={report.jointInfo}
                     valueOf={(name) => plugin.getJointValue(name)}
@@ -436,39 +443,10 @@ export function RobotModelProperties({
                       force();
                     }}
                   />
+                  <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
                 </>
               )}
             </>
-          )}
-
-          {/* --- Base pose --- */}
-          <div className="props-section">Base pose</div>
-          <Segmented<Source>
-            value={s.pose_source}
-            options={[
-              ['manual', 'Manual'],
-              ['channel', 'Channel (TF)'],
-            ]}
-            onChange={(v) => set({ pose_source: v })}
-          />
-          {s.pose_source === 'channel' ? (
-            <label className="props-row">
-              <span>Root frame</span>
-              <input
-                type="text"
-                value={s.root_frame}
-                onChange={(e) => set({ root_frame: e.target.value })}
-              />
-            </label>
-          ) : (
-            <PoseInputs
-              pose={s.manual_pose}
-              onChange={(patch) => {
-                plugin.setManualPose(patch);
-                onChange();
-                force();
-              }}
-            />
           )}
 
           {/* --- Appearance --- */}
@@ -711,48 +689,6 @@ function ReportView({ report }: { report: ReturnType<RobotModelPlugin['getReport
           {report.meshFailed.length > 3 && '…'}
         </div>
       )}
-    </div>
-  );
-}
-
-function PoseInputs({
-  pose,
-  onChange,
-}: {
-  pose: ManualPose;
-  onChange: (patch: Partial<ManualPose>) => void;
-}) {
-  const axis = (
-    key: 'xyz' | 'rpy',
-    i: number,
-    label: string,
-  ) => (
-    <label className="pose-axis" key={`${key}${i}`}>
-      <span>{label}</span>
-      <input
-        type="number"
-        step={0.1}
-        value={pose[key][i]}
-        onChange={(e) => {
-          const next = [...pose[key]] as [number, number, number];
-          next[i] = Number(e.target.value);
-          onChange({ [key]: next } as Partial<ManualPose>);
-        }}
-      />
-    </label>
-  );
-  return (
-    <div className="pose-inputs">
-      <div className="pose-row">
-        {axis('xyz', 0, 'x')}
-        {axis('xyz', 1, 'y')}
-        {axis('xyz', 2, 'z')}
-      </div>
-      <div className="pose-row">
-        {axis('rpy', 0, 'R')}
-        {axis('rpy', 1, 'P')}
-        {axis('rpy', 2, 'Y')}
-      </div>
     </div>
   );
 }
