@@ -785,6 +785,11 @@ export class RobotModelPlugin implements DisplayPlugin {
     return this.ik ? this.ik.getResidual() : null;
   }
 
+  /** Chain joints pinned at a limit and blocking reach (for slider highlight). */
+  getIkJointsAtLimit(): string[] {
+    return this.ik?.getJointsAtLimit() ?? [];
+  }
+
   /** Publish the current IK target pose once as wv/Pose and hold it (the native
    * "Send to robot" action). No-op when not in IK mode. */
   sendIkTarget(): void {

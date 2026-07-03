@@ -69,6 +69,8 @@ export class RobotIkController {
   private tcp: THREE.Object3D | null = null;
   private q: number[] = [];
   private residual: IkResidual = { pos: 0, rot: 0 };
+  /** Chain joints pinned at a limit *and* blocking (target not reached). */
+  private atLimit = new Set<string>();
 
   // External backend
   private readonly backend: IkBackend;
@@ -131,6 +133,7 @@ export class RobotIkController {
     this.tcp.getWorldPosition(this.gizmo.node.position);
     this.tcp.getWorldQuaternion(this.gizmo.node.quaternion);
     this.residual = { pos: 0, rot: 0 };
+    this.atLimit.clear();
     if (this.backend === 'external') this.publishTarget(true);
     this.scene.requestRender();
   }
@@ -339,6 +342,28 @@ export class RobotIkController {
       pos: this.tcpP.distanceTo(this.gizmo.node.position),
       rot: orientationError(this.gizmo.node.quaternion, this.tcpQ).length(),
     };
+    this.computeAtLimit();
+  }
+
+  /** Flag chain joints sitting at a limit — but only when the tool tip can't
+   * reach the target, so a joint that's legitimately at its limit while the
+   * pose is still reached isn't reported as a blocker. */
+  private computeAtLimit(): void {
+    this.atLimit.clear();
+    const reached = this.residual.pos < 1e-3 && this.residual.rot < 1e-2;
+    if (reached) return;
+    const eps = 1e-3;
+    for (const jn of this.chain) {
+      if (jn.type === 'continuous') continue;
+      const j = this.robot.joints[jn.name] as unknown as { jointValue?: number[]; angle?: number };
+      const v = j?.jointValue?.[0] ?? j?.angle ?? 0;
+      if (v <= jn.lower + eps || v >= jn.upper - eps) this.atLimit.add(jn.name);
+    }
+  }
+
+  /** Chain joints currently pinned at a limit and blocking reach (for UI). */
+  getJointsAtLimit(): string[] {
+    return [...this.atLimit];
   }
 
   // --- chain ---

@@ -481,6 +481,7 @@ export function RobotModelProperties({
                     <JointSliders
                       joints={report.jointInfo}
                       valueOf={(name) => plugin.getJointValue(name)}
+                      atLimit={plugin.getIkJointsAtLimit()}
                       onSet={(name, v) => {
                         plugin.setIkJoint(name, v);
                         onChange();
@@ -610,11 +611,14 @@ function JointSliders({
   valueOf,
   onSet,
   onReset,
+  atLimit,
 }: {
   joints: JointInfo[];
   valueOf: (name: string) => number;
   onSet: (name: string, value: number) => void;
   onReset?: () => void;
+  /** Joints to flag as pinned at a limit (blocking IK reach). */
+  atLimit?: string[];
 }) {
   const angleUnit = useSettingsStore((st) => st.angleUnit);
   const lengthUnit = useSettingsStore((st) => st.lengthUnit);
@@ -632,14 +636,17 @@ function JointSliders({
         const lo = toDisp(j.lower);
         const hi = toDisp(j.upper);
         const val = toDisp(valueOf(j.name));
+        const limited = atLimit?.includes(j.name);
+        const limitStyle = limited ? { color: 'var(--yellow)' } : undefined;
         return (
           <div className="joint-slider" key={j.name}>
             <div className="joint-slider-head">
-              <span className="joint-name" title={j.name}>
+              <span className="joint-name" title={j.name} style={limitStyle}>
                 {j.name}
               </span>
-              <span className="joint-val">
+              <span className="joint-val" style={limitStyle}>
                 {val.toFixed(fmt.precision)} {unit}
+                {limited ? ' ⚠ limit' : ''}
               </span>
             </div>
             <input
