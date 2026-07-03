@@ -108,6 +108,7 @@ export class RobotIkController {
     this.wRot = config.wRot;
     this.gizmoId = `${baseId}:ik-gizmo`;
     this.buildChain(tcpLinkName);
+    this.container.userData.noFit = true; // gizmo excluded from view auto-fit
     this.scene.addObject(this.gizmoId, this.container);
     this.gizmo = new PoseGizmo(this.scene, this.container);
     this.gizmo.onChange(() => this.onGizmoChange());

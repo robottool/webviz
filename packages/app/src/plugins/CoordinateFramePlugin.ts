@@ -93,6 +93,7 @@ export class CoordinateFramePlugin implements DisplayPlugin {
 
   async initialize(ctx: PluginContext): Promise<void> {
     this.ctx = ctx;
+    this.container.userData.noFit = true; // gizmo excluded from view auto-fit
     ctx.scene.addObject(this.id, this.container);
     // Combined gizmo: move axes + rotate rings shown at once (two controls).
     // Construct rotate FIRST: each TransformControls grabs pointer capture on

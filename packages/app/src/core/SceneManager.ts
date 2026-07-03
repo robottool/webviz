@@ -266,11 +266,24 @@ export class SceneManager {
     this.frameFrom(dir.clone().normalize());
   }
 
+  /** Bounding box of framable content: every root child except those flagged
+   * `userData.noFit` — interactive gizmos, whose huge invisible drag-planes would
+   * otherwise blow the fit up and fling the camera far away. */
+  private contentBox(target: THREE.Box3): THREE.Box3 {
+    target.makeEmpty();
+    this.root.updateMatrixWorld(true);
+    for (const child of this.root.children) {
+      if (child.userData.noFit) continue;
+      target.expandByObject(child);
+    }
+    return target;
+  }
+
   /** Shared camera placement: orbit `dir` (or the current direction if null) at
-   * a distance that frames the scene root, falling back to the current target /
-   * distance when the scene is still empty (so a gizmo click works pre-load). */
+   * a distance that frames the scene content, falling back to the current target
+   * / distance when the scene is still empty (so a gizmo click works pre-load). */
   private frameFrom(dir: THREE.Vector3 | null): boolean {
-    const box = this.tmpBox.setFromObject(this.root);
+    const box = this.contentBox(this.tmpBox);
     const hasContent = !box.isEmpty();
 
     let center: THREE.Vector3;
@@ -319,7 +332,7 @@ export class SceneManager {
   /** While armed, watch for content to appear and stop growing, then frame it
    * once. Cheap when the root is empty (nothing to traverse). */
   private tryAutoFit(): void {
-    const box = this.tmpBox.setFromObject(this.root);
+    const box = this.contentBox(this.tmpBox);
     if (box.isEmpty()) {
       this.lastContentRadius = -1;
       this.fitStableFrames = 0;
