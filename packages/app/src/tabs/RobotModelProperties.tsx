@@ -492,7 +492,7 @@ export function RobotModelProperties({
                   {!collapsed.jogTcp && (
                     <TcpNudge plugin={plugin} onChange={onChange} force={force} />
                   )}
-                  <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
+                  <IkPanel plugin={plugin} s={s} set={set} />
                 </>
               )}
             </>
@@ -666,14 +666,10 @@ function IkPanel({
   plugin,
   s,
   set,
-  onChange,
-  force,
 }: {
   plugin: RobotModelPlugin;
   s: RMSettings;
   set: (patch: Partial<RMSettings>) => void;
-  onChange: () => void;
-  force: () => void;
 }) {
   // Channel names commit on blur/Enter so we don't re-advertise per keystroke.
   const [target, setTarget] = useState(s.ik_target_channel);
@@ -797,17 +793,6 @@ function IkPanel({
           </div>
         )
       )}
-
-      <button
-        style={{ width: '100%', marginTop: 4 }}
-        onClick={() => {
-          plugin.reseedIk();
-          onChange();
-          force();
-        }}
-      >
-        Recenter on current pose
-      </button>
     </div>
   );
 }

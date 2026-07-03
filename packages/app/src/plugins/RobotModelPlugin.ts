@@ -785,11 +785,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     return this.ik ? this.ik.getResidual() : null;
   }
 
-  /** Re-snap the gizmo to the robot's current TCP pose. */
-  reseedIk(): void {
-    this.ik?.reseed();
-  }
-
   /** Publish the current IK target pose once as wv/Pose and hold it (the native
    * "Send to robot" action). No-op when not in IK mode. */
   sendIkTarget(): void {
