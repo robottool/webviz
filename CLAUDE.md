@@ -28,7 +28,7 @@ The repo is a **vertical slice in progress**. **All six tabs are live** — **In
 Toolchain note: pnpm 9 runs via corepack from `~/.local/bin` (Node 20 quirk) — ensure that's on `PATH` before running pnpm.
 
 ```bash
-./setup.sh                                 # idempotent first-time Linux setup: installs toolchain (Node ≥20 via nvm if missing, pnpm), JS deps, builds protocol, and a Python venv with websockets for the demos. Re-run safely; only fills in what's missing.
+./setup.sh                                 # idempotent first-time Linux setup: installs toolchain (Node ≥22 via nvm if missing, pnpm), JS deps, builds protocol, and a Python venv with websockets for the demos. Re-run safely; only fills in what's missing.
 ./dev.sh                                   # one-shot local stack: builds protocol, then runs hub + app together (binds 0.0.0.0; tears both down on Ctrl+C). Header comments cover VM/remote port-forwarding.
 
 pnpm install                              # install workspace deps

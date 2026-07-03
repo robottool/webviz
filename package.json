@@ -5,7 +5,7 @@
   "description": "Browser-based visualization platform for robots and real-time systems (protocol-first, source-agnostic, tiling-panel workspace).",
   "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "pnpm -r build",

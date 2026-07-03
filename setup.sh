@@ -3,7 +3,7 @@
 # setup.sh — install everything needed to run the WebViz dev stack on Linux.
 #
 # Installs / verifies, in order:
-#   1. Node.js >= 20      (via nvm if missing — no sudo, distro-agnostic)
+#   1. Node.js >= 22      (via nvm if missing — no sudo, distro-agnostic)
 #   2. pnpm 9             (via corepack, pinned to package.json's version)
 #   3. JS workspace deps  (pnpm install) + builds @webviz/protocol
 #   4. Python venv (./venv) with websockets>=11  (for the WS demos)
@@ -25,20 +25,20 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # pnpm version to activate — read straight from package.json so it never drifts.
 PNPM_SPEC="$(grep -oE '"packageManager":[^,]*' package.json | grep -oE 'pnpm@[0-9.]+' || echo 'pnpm@9')"
 
-# --- 1. Node.js >= 20 --------------------------------------------------------
+# --- 1. Node.js >= 22 --------------------------------------------------------
 node_major() { node -v 2>/dev/null | sed 's/^v//; s/\..*//'; }
 
-say "Checking Node.js (need >= 20)"
-if ! have node || [ "$(node_major)" -lt 20 ]; then
-  echo "Node >= 20 not found — installing via nvm (user-local, no sudo)…"
+say "Checking Node.js (need >= 22)"
+if ! have node || [ "$(node_major)" -lt 22 ]; then
+  echo "Node >= 22 not found — installing via nvm (user-local, no sudo)…"
   export NVM_DIR="$HOME/.nvm"
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
   fi
   # shellcheck disable=SC1091
   . "$NVM_DIR/nvm.sh"
-  nvm install 20
-  nvm use 20
+  nvm install 22
+  nvm use 22
 else
   echo "Found Node $(node -v)."
 fi
