@@ -86,6 +86,19 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
   per-joint sliders + a base-pose input to preview. Once your pipeline publishes
   `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
+- **Or load one from a URL (no local files)**: in *Load URDF…* → **From URL**,
+  paste a GitHub link to a `.urdf`. Try the UR5:
+
+  ```
+  https://github.com/Gepetto/example-robot-data/blob/master/robots/ur_description/urdf/ur5_gripper.urdf
+  ```
+
+  Leave the **meshes URL** blank — they resolve automatically from the same repo
+  (the URDF's `package://` refs point there). Only needed if a robot's meshes live
+  somewhere the auto-resolver can't find them: point it at the folder holding them,
+  e.g. `https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
+  Works for CORS-enabled hosts and flat, non-`.xacro` URDFs. This is fully
+  client-side, so it also works on the [live demo](https://robottool.github.io/webviz/).
 - **Drag the robot by its tool tip (IK)**: in RobotModel properties (serial arms only)
   set Joints to **IK (drag TCP)** — the arm freezes at its current pose and a gizmo
   appears on the tool tip. Drag it and the arm follows in real time. Two solver backends:
