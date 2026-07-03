@@ -58,6 +58,8 @@ export function RobotModelProperties({
   // The URL load is a two-step wizard: pick a source ('choose'), then for a URL
   // give the meshes location ('mesh').
   const [loadStep, setLoadStep] = useState<'choose' | 'mesh'>('choose');
+  const [collapsed, setCollapsed] = useState({ urdf: false, live: false });
+  const autoCollapsed = useRef(false);
   const folderRef = useRef<HTMLInputElement>(null);
   const meshFolderRef = useRef<HTMLInputElement>(null);
 
@@ -65,12 +67,13 @@ export function RobotModelProperties({
   useEffect(() => plugin.onChange(force), [plugin]);
 
   // <input webkitdirectory> isn't a standard React attribute; set it directly.
+  // Re-run when the URDF section expands, since its inputs unmount while collapsed.
   useEffect(() => {
     for (const el of [folderRef.current, meshFolderRef.current]) {
       el?.setAttribute('webkitdirectory', '');
       el?.setAttribute('directory', '');
     }
-  }, []);
+  }, [collapsed.urdf]);
 
   const s = plugin.getSettings() as unknown as RMSettings;
   const report = plugin.getReport();
@@ -87,6 +90,19 @@ export function RobotModelProperties({
     setShowMissing(localMissing);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [failedSig, localMissing]);
+
+  // Declutter: once the robot is cleanly loaded, auto-collapse the URDF +
+  // Live-state sections (re-arm on unload). The user can still toggle either.
+  const cleanLoad = report.loaded && report.meshFailed.length === 0;
+  useEffect(() => {
+    if (cleanLoad && !autoCollapsed.current) {
+      autoCollapsed.current = true;
+      setCollapsed({ urdf: true, live: true });
+    } else if (!report.loaded) {
+      autoCollapsed.current = false;
+      setCollapsed({ urdf: false, live: false });
+    }
+  }, [cleanLoad, report.loaded]);
 
   const set = (patch: Partial<RMSettings>) => {
     plugin.updateSettings(patch as Record<string, unknown>);
@@ -178,10 +194,23 @@ export function RobotModelProperties({
     setShowLoad(true);
   };
 
+  const sectionToggle = (title: string, key: 'urdf' | 'live') => (
+    <div
+      className="props-section"
+      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' }}
+      onClick={() => setCollapsed((c) => ({ ...c, [key]: !c[key] }))}
+    >
+      <span style={{ fontSize: '0.7em', opacity: 0.7 }}>{collapsed[key] ? '▶' : '▼'}</span>
+      {title}
+    </div>
+  );
+
   return (
     <div className="props-form">
       {/* --- URDF source --- */}
-      <div className="props-section">URDF</div>
+      {sectionToggle('URDF', 'urdf')}
+      {!collapsed.urdf && (
+        <>
       <Segmented<UrdfSource>
         value={s.urdf_source}
         options={[
@@ -243,6 +272,8 @@ export function RobotModelProperties({
           ⚠ {report.meshFailed.length} mesh
           {report.meshFailed.length > 1 ? 'es' : ''} not found — change meshes URL…
         </button>
+      )}
+        </>
       )}
 
       {showMissing &&
@@ -399,23 +430,29 @@ export function RobotModelProperties({
         <>
           {/* --- Live state: joints from a channel + base pose from TF; both
               show 0 / identity until data arrives. --- */}
-          <div className="props-section">Live state</div>
-          <label className="props-row">
-            <span>Joints ch.</span>
-            <Select
-              value={s.joint_channel}
-              options={channelsOf('wv/JointState')}
-              onChange={(v) => set({ joint_channel: v })}
-            />
-          </label>
-          <label className="props-row">
-            <span>Base frame</span>
-            <input
-              type="text"
-              value={s.root_frame}
-              onChange={(e) => set({ root_frame: e.target.value })}
-            />
-          </label>
+          {sectionToggle('Live state', 'live')}
+          {!collapsed.live && (
+            <>
+              <label className="props-row">
+                <span>Joints ch.</span>
+                <Select
+                  value={s.joint_channel}
+                  options={channelsOf('wv/JointState')}
+                  onChange={(v) => set({ joint_channel: v })}
+                />
+              </label>
+              <label className="props-row">
+                <span>Base frame</span>
+                <Select
+                  value={s.root_frame}
+                  options={Array.from(
+                    new Set([s.root_frame, ...plugin.getTfFrames()].filter(Boolean)),
+                  )}
+                  onChange={(v) => set({ root_frame: v })}
+                />
+              </label>
+            </>
+          )}
 
           {/* --- Jog: drive a translucent shadow so the solid robot keeps
               showing live state. Serial arms only. --- */}

@@ -768,6 +768,11 @@ export class RobotModelPlugin implements DisplayPlugin {
     return this.robot ? Object.keys(this.robot.links) : [];
   }
 
+  /** Live TF frame names (for the base-frame picker). */
+  getTfFrames(): string[] {
+    return this.ctx?.tf.getFrameList() ?? [];
+  }
+
   /** Current IK residual (position/orientation error), or null when not in IK. */
   getIkResidual(): IkResidual | null {
     return this.ik ? this.ik.getResidual() : null;
