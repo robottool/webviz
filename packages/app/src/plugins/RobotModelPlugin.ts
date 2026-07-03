@@ -207,7 +207,6 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   private latestJoints: JointState | null = null;
   private jointsDirty = false;
-  private manualDirty = false;
   /** Active only in jog mode — owns the drag gizmo + solver, mounted on the shadow. */
   private ik: RobotIkController | null = null;
   /** Translucent clone spawned in jog mode (the interactive command target); the
@@ -249,10 +248,13 @@ export class RobotModelPlugin implements DisplayPlugin {
       ...(initial as Partial<Settings> | undefined),
     };
     // Legacy: IK used to be a joint_source; it's now the separate `jog` toggle
-    // (the monitor keeps showing live joints while the shadow is jogged).
+    // (the monitor keeps showing live joints while the shadow is jogged). And the
+    // monitor is channel-only now — manual joints moved to jog's fine-tune.
     if ((this.settings.joint_source as string) === 'ik') {
       this.settings.joint_source = 'channel';
       this.settings.jog = true;
+    } else if (this.settings.joint_source === 'manual') {
+      this.settings.joint_source = 'channel';
     }
   }
 
@@ -538,15 +540,13 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.report.loaded = true;
     this.report.robotName = robot.robotName ?? '';
     this.report.jointInfo = this.computeJointInfo(robot);
-    // Seed any joints we don't yet have a manual value for.
+    // No joint-channel data yet → show every joint at 0 (clamped to its limits);
+    // channel messages override these when they arrive.
     for (const j of this.report.jointInfo) {
-      if (!(j.name in this.settings.manual_joints)) {
-        this.settings.manual_joints[j.name] = clamp(0, j.lower, j.upper);
-      }
+      robot.setJointValue(j.name, clamp(0, j.lower, j.upper));
     }
     this.ikFeasible = this.computeIkFeasible();
     this.applyOpacity();
-    this.manualDirty = true;
     this.jointsDirty = true;
     this.ctx.scene.addObject(this.id, robot);
     // A (re)load replaces the robot the jog shadow was cloned from, so rebuild
@@ -586,14 +586,9 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   onRender(): void {
     if (!this.robot) return;
-    // The monitor robot always shows current state; the jog shadow (if any) is
-    // driven independently by its own IK controller, not here.
-    if (this.settings.joint_source === 'manual') {
-      if (this.manualDirty) {
-        this.applyManualJoints();
-        this.manualDirty = false;
-      }
-    } else if (this.jointsDirty && this.latestJoints) {
+    // Monitor joints come from the channel (0 until data arrives); the jog shadow
+    // (if any) is driven independently by its own IK controller, not here.
+    if (this.jointsDirty && this.latestJoints) {
       this.applyJoints(this.latestJoints);
       this.jointsDirty = false;
     }
@@ -609,12 +604,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     }
   }
 
-  private applyManualJoints(): void {
-    if (!this.robot) return;
-    for (const [name, v] of Object.entries(this.settings.manual_joints)) {
-      this.robot.setJointValue(name, v);
-    }
-  }
 
   private applyManualPose(): void {
     if (!this.robot) return;
@@ -656,13 +645,6 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   // --- manual setters (called by the Properties UI) ---
 
-  setManualJoint(name: string, value: number): void {
-    this.settings.manual_joints[name] = value;
-    if (this.settings.joint_source === 'manual') {
-      this.manualDirty = true;
-      this.ctx.scene.requestRender();
-    }
-  }
 
   setManualPose(patch: Partial<ManualPose>): void {
     this.settings.manual_pose = { ...this.settings.manual_pose, ...patch };
@@ -840,7 +822,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     if ('joint_channel' in patch) this.bindJoints();
     if ('urdf_source' in patch) this.bindModel();
     if ('joint_source' in patch && this.settings.joint_source !== prevJointSource) {
-      this.manualDirty = true;
       this.jointsDirty = true;
     }
     // Jog toggle: spawn / tear down the shadow command target.

@@ -9,7 +9,7 @@ Browser-based visualization platform for robots and real-time systems.
 
 This is a **hub-less static build** (deployed to GitHub Pages by `.github/workflows/pages.yml`
 on every push to `main`), so only the fully client-side features work: open the **3D** tab,
-load a URDF, and drive it with the manual joint sliders or the in-browser **IK "drag the TCP"**
+load a URDF, and move it with **Jog mode** — joint sliders or the in-browser **IK "drag the TCP"**
 gizmo. Everything that needs the hub — live channels, the Python/ROS demos, recording playback,
 and saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
 
@@ -96,9 +96,10 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   named layouts, and record a session to `.wvrec` (then load it back for playback).
 - **Load your own URDF**: in the 3D tab's RobotModel properties, switch URDF to
   **Local files**, click *Load URDF folder…*, and pick the folder containing your
-  `.urdf` + meshes. It validates (joints found, meshes loaded/failed) and gives you
-  per-joint sliders + a base-pose input to preview. Once your pipeline publishes
-  `wv/JointState`/`wv/Transform`, switch joints/pose from **Manual** to **Channel**.
+  `.urdf` + meshes. It validates (joints found, meshes loaded/failed). The robot
+  shows all joints at 0 until your pipeline publishes `wv/JointState` — pick that
+  channel (and a `wv/Transform` base frame) to drive it live. To move it yourself,
+  enable **Jog mode** (below).
   (To load a robot straight from a URL — with a ready-to-paste UR5 example — see
   [Live demo](#live-demo) above.)
 - **Drag the robot by its tool tip (IK)**: in RobotModel properties (serial arms only)

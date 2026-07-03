@@ -397,41 +397,16 @@ export function RobotModelProperties({
 
       {report.loaded && (
         <>
-          {/* --- Joints --- */}
+          {/* --- Joints: monitor is channel-driven (0 until data arrives). --- */}
           <div className="props-section">Joints</div>
-          <Segmented<JointSource>
-            value={s.joint_source === 'ik' ? 'channel' : s.joint_source}
-            options={[
-              ['manual', 'Manual'],
-              ['channel', 'Channel'],
-            ]}
-            onChange={(v) => set({ joint_source: v })}
-          />
-          {s.joint_source === 'channel' ? (
-            <label className="props-row">
-              <span>Joints ch.</span>
-              <Select
-                value={s.joint_channel}
-                options={channelsOf('wv/JointState')}
-                onChange={(v) => set({ joint_channel: v })}
-              />
-            </label>
-          ) : (
-            <JointSliders
-              joints={report.jointInfo}
-              valueOf={(name) => s.manual_joints[name] ?? 0}
-              onSet={(name, v) => {
-                plugin.setManualJoint(name, v);
-                onChange();
-                force();
-              }}
-              onReset={() => {
-                for (const j of report.jointInfo) plugin.setManualJoint(j.name, 0);
-                onChange();
-                force();
-              }}
+          <label className="props-row">
+            <span>Joints ch.</span>
+            <Select
+              value={s.joint_channel}
+              options={channelsOf('wv/JointState')}
+              onChange={(v) => set({ joint_channel: v })}
             />
-          )}
+          </label>
 
           {/* --- Jog (command): drive a translucent shadow so the solid robot
               keeps showing live state. Serial arms only. --- */}
@@ -448,9 +423,6 @@ export function RobotModelProperties({
               </label>
               {s.jog && (
                 <>
-                  <p className="report muted" style={{ marginTop: 4 }}>
-                    Driving a translucent shadow — the solid robot stays on live state.
-                  </p>
                   <IkPanel plugin={plugin} s={s} set={set} onChange={onChange} force={force} />
                   <div className="props-section" style={{ marginTop: 10 }}>
                     Joints (fine-tune)
@@ -711,12 +683,6 @@ function IkPanel({
       >
         Recenter on current pose
       </button>
-      <p className="report muted" style={{ marginTop: 6 }}>
-        Drag the gizmo on the tool tip; the base pose is frozen while in IK.{' '}
-        {external
-          ? 'External: the target is published as wv/Pose and joints are read back from your solver.'
-          : 'Native: solved in-browser as a preview — the real robot is untouched while you drag. Click “Send to robot” to publish the final pose (wv/Pose) and joint config (wv/JointState); both are held until you send again.'}
-      </p>
     </div>
   );
 }
