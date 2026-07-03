@@ -79,6 +79,10 @@ export class RobotIkController {
   private keepalive: ReturnType<typeof setInterval> | null = null;
   private lastPubMs = 0;
   private hasSolution = false;
+  /** The pose last committed via `sendTarget()` (native "Send to robot"); the
+   * keepalive re-asserts *this* snapshot, not the live gizmo, so dragging after
+   * a send doesn't move the real robot until the next send. */
+  private lastSentPose: PoseStamped | null = null;
 
   // Scratch objects reused across the solve loop to avoid per-iteration allocation.
   private readonly targetP = new THREE.Vector3();
@@ -164,20 +168,45 @@ export class RobotIkController {
     this.keepalive = setInterval(() => this.publishTarget(true), KEEPALIVE_MS);
   }
 
-  private publishTarget(force = false): void {
-    if (!this.targetHandle) return;
-    const now = performance.now();
-    if (!force && now - this.lastPubMs < 1000 / PUBLISH_HZ) return;
-    this.lastPubMs = now;
+  /** A wv/Pose from the gizmo's current transform, in the fixed frame. */
+  private currentTargetPose(): PoseStamped {
     const p = this.gizmo.node.position;
     const q = this.gizmo.node.quaternion;
-    const pose: PoseStamped = {
+    return {
       id: this.baseId,
       frame_id: this.scene.getFixedFrame(),
       position: [p.x, p.y, p.z],
       orientation: [q.x, q.y, q.z, q.w],
     };
-    this.targetHandle.send(pose);
+  }
+
+  /** External backend: stream the *live* gizmo pose (rate-capped unless forced). */
+  private publishTarget(force = false): void {
+    if (!this.targetHandle) return;
+    const now = performance.now();
+    if (!force && now - this.lastPubMs < 1000 / PUBLISH_HZ) return;
+    this.lastPubMs = now;
+    this.targetHandle.send(this.currentTargetPose());
+  }
+
+  /**
+   * One-shot "Send to robot" (native backend): publish the current TCP pose as
+   * the wv/Pose target once, then **hold** it — a keepalive re-asserts this exact
+   * snapshot so a controller that (re)connects still latches it, and so dragging
+   * the preview afterwards doesn't command the robot until the next send. Unlike
+   * the external backend, nothing is published while you drag.
+   */
+  sendTarget(): void {
+    if (!this.targetHandle) {
+      this.targetHandle = sourcePublisher.advertise(this.targetChannel, 'wv/Pose', 'json');
+    }
+    this.lastSentPose = this.currentTargetPose();
+    this.targetHandle.send(this.lastSentPose);
+    if (this.keepalive == null) {
+      this.keepalive = setInterval(() => {
+        if (this.lastSentPose) this.targetHandle?.send(this.lastSentPose);
+      }, KEEPALIVE_MS);
+    }
   }
 
   private applyExternalJoints(js: JointState): void {

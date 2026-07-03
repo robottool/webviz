@@ -531,6 +531,15 @@ function IkPanel({
   const [target, setTarget] = useState(s.ik_target_channel);
   const [solution, setSolution] = useState(s.ik_solution_channel);
   const external = s.ik_backend === 'external';
+  // Native "Send to robot": publish the final pose on demand, with a brief ✓.
+  const [sent, setSent] = useState(false);
+  const sentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendToRobot = () => {
+    plugin.sendIkTarget();
+    setSent(true);
+    if (sentTimer.current) clearTimeout(sentTimer.current);
+    sentTimer.current = setTimeout(() => setSent(false), 1500);
+  };
   const residual = plugin.getIkResidual();
   const reached = !!residual && residual.pos < 1e-3 && residual.rot < 1e-2;
   return (
@@ -584,17 +593,34 @@ function IkPanel({
           </label>
         </>
       ) : (
-        <label className="props-row">
-          <span>Orient. weight</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={s.ik_orient_weight}
-            onChange={(e) => set({ ik_orient_weight: Number(e.target.value) })}
-          />
-        </label>
+        <>
+          <label className="props-row">
+            <span>Orient. weight</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={s.ik_orient_weight}
+              onChange={(e) => set({ ik_orient_weight: Number(e.target.value) })}
+            />
+          </label>
+          <label className="props-row">
+            <span>Command ch.</span>
+            <input
+              type="text"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              onBlur={() => set({ ik_target_channel: target.trim() })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') set({ ik_target_channel: target.trim() });
+              }}
+            />
+          </label>
+          <button style={{ width: '100%', marginTop: 4 }} onClick={sendToRobot}>
+            {sent ? 'Pose sent ✓' : 'Send pose to robot'}
+          </button>
+        </>
       )}
 
       {external && !residual ? (
@@ -626,7 +652,7 @@ function IkPanel({
         Drag the gizmo on the tool tip; the base pose is frozen while in IK.{' '}
         {external
           ? 'External: the target is published as wv/Pose and joints are read back from your solver.'
-          : 'Native: IK is solved in-browser (no hub needed).'}
+          : 'Native: solved in-browser as a preview — the real robot is untouched while you drag. Click “Send pose to robot” to publish the final pose as wv/Pose (held until you send again).'}
       </p>
     </div>
   );

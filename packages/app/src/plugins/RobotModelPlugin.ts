@@ -751,6 +751,12 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ik?.reseed();
   }
 
+  /** Publish the current IK target pose once as wv/Pose and hold it (the native
+   * "Send to robot" action). No-op when not in IK mode. */
+  sendIkTarget(): void {
+    this.ik?.sendTarget();
+  }
+
   // --- DisplayPlugin contract ---
 
   /** RobotModel uses a custom Properties UI, so the schema form is unused. */
