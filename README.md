@@ -3,44 +3,6 @@
 Browser-based visualization platform for robots and real-time systems.
 **Protocol-first · Source-agnostic · Tiling-panel workspace.**
 
-## Live demo
-
-**▶ [robottool.github.io/webviz](https://robottool.github.io/webviz/)** — try it in your browser, no install.
-
-This is a **hub-less static build** (deployed to GitHub Pages by `.github/workflows/pages.yml`
-on every push to `main`), so only the fully client-side features work: open the **3D** tab,
-load a URDF, and move it with **Jog mode** — joint sliders or the in-browser **IK "drag the TCP"**
-gizmo. Everything that needs the hub — live channels, the Python/ROS demos, recording playback,
-and saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
-
-**Try it with a real robot:** in the 3D tab open RobotModel properties → *Load URDF…*, then
-either click **Load demo robot**, or choose **From URL** and paste a GitHub link to a `.urdf` —
-e.g. the UR5:
-
-```
-https://github.com/Gepetto/example-robot-data/blob/master/robots/ur_description/urdf/ur5_gripper.urdf
-```
-
-Leave the **meshes URL** blank — they auto-resolve from the same repo (the URDF's `package://`
-refs point there). Only set it if a robot's meshes live somewhere the auto-resolver can't find
-them, pointing at the folder that holds them, e.g.
-`https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
-URL loading needs a CORS-enabled host and a flat, non-`.xacro` URDF.
-
-## What's built
-
-All six tabs and the full 3D display-plugin catalogue are live, built on a shared `wv/*` wire
-protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
-
-| Package | What works |
-|---|---|
-| `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
-| `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
-| `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose`, `CoordinateFrame` |
-| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
-| `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
-| `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
-
 ## Visualization tools
 
 The workspace is a tiling grid of independent **panels** — split a pane to add one, close to
@@ -104,6 +66,44 @@ A single, filtered, auto-scrolling **event stream** aggregating *every* `wv/Log`
 the TF tree aggregates every transform channel). Filter by level (DEBUG/INFO/WARN/ERROR) and by
 free-text search on name + message; **Pause** freezes the view while logs keep buffering. Rows are
 colour-coded by severity.
+
+## Live demo
+
+**▶ [robottool.github.io/webviz](https://robottool.github.io/webviz/)** — try it in your browser, no install.
+
+This is a **hub-less static build** (deployed to GitHub Pages by `.github/workflows/pages.yml`
+on every push to `main`), so only the fully client-side features work: open the **3D** tab,
+load a URDF, and move it with **Jog mode** — joint sliders or the in-browser **IK "drag the TCP"**
+gizmo. Everything that needs the hub — live channels, the Python/ROS demos, recording playback,
+and saved layouts — only works when you run the full stack locally (see [Quick start](#quick-start)).
+
+**Try it with a real robot:** in the 3D tab open RobotModel properties → *Load URDF…*, then
+either click **Load demo robot**, or choose **From URL** and paste a GitHub link to a `.urdf` —
+e.g. the UR5:
+
+```
+https://github.com/Gepetto/example-robot-data/blob/master/robots/ur_description/urdf/ur5_gripper.urdf
+```
+
+Leave the **meshes URL** blank — they auto-resolve from the same repo (the URDF's `package://`
+refs point there). Only set it if a robot's meshes live somewhere the auto-resolver can't find
+them, pointing at the folder that holds them, e.g.
+`https://github.com/Gepetto/example-robot-data/tree/master/robots/ur_description/meshes/ur5/visual`.
+URL loading needs a CORS-enabled host and a flat, non-`.xacro` URDF.
+
+## What's built
+
+All six tabs and the full 3D display-plugin catalogue are live, built on a shared `wv/*` wire
+protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
+
+| Package | What works |
+|---|---|
+| `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
+| `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
+| `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose`, `CoordinateFrame` |
+| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
+| `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
+| `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
 
 ## Quick start
 
