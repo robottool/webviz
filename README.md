@@ -7,9 +7,15 @@ Browser-based visualization platform for robots and real-time systems.
 
 The workspace is a tiling grid of independent **panels** — split a pane to add one, close to
 remove, maximize to focus (there's no tab bar; "switch between whole setups" is
-[named layouts](#quick-start), not tabs). Every panel is one of six tools, and they share one
-hub connection, one TF tree, and one clock. Screenshots below are captured against the local
-stack with the bundled demos (see [docs/screenshots/](docs/screenshots) for how to reproduce them).
+[named layouts](#quick-start), not tabs). Every panel is one of six tools; within a window they
+share one hub connection, one TF tree, and one clock.
+
+**Multiple monitors?** Open the app in as many browser windows or tabs as you like — each is an
+independent client of the same hub, so you can tile a few panels per window and spread them across
+several displays for a wall-of-dashboards setup (drag each window to its own monitor).
+
+Screenshots below are captured against the local stack with the bundled demos (see
+[docs/screenshots/](docs/screenshots) for how to reproduce them).
 
 ### 🧊 3D
 
