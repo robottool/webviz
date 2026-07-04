@@ -101,7 +101,7 @@ protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
 | `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
 | `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
 | `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose`, `CoordinateFrame` |
-| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
+| `sdks/python` | Minimal `webviz.Client` plus demos: `map_sim_demo.py` (SLAM-style Map + nav log + telemetry, one script for Map/Log/Inspector), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
 
@@ -141,8 +141,7 @@ pnpm app        # opens http://localhost:5173
 Then feed it demo data (each in its own terminal):
 
 ```bash
-python3 sdks/python/demos/demo_source.py             # transforms / markers / nav / log (no pip deps)
-python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
+python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot, plus a nav log + telemetry — feeds Map / Log / Inspector (no pip deps)
 venv/bin/python3 sdks/python/demos/robot_demo.py     # UR5 that executes jog "Send to robot" commands for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)
