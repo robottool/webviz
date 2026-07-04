@@ -5,23 +5,29 @@ Generates a *random* world (kept hidden as ground truth), drives a dot robot on
 a collision-avoiding random walk, raycasts a 360° laser scan against it, and
 **builds the published map from those scans** — so the occupancy grid fills in
 SLAM-style as the robot explores instead of appearing complete from the start.
-Publishes the four channels the Map tab consumes:
+Publishes the Map-tab channels plus a spread of extra telemetry, so one
+dependency-free script feeds the Map, Log, and Inspector tabs at once:
 
-    map        wv/OccupancyGrid   the *discovered* map (free/occupied/unknown)
-    transform  wv/Transform       mobile_base_link -> odom (the robot pose)
-    scan       wv/LaserScan       in mobile_base_link, raycast against the world
-    trail      wv/Path            the robot's recent trajectory (in odom)
+    map            wv/OccupancyGrid   the *discovered* map (free/occupied/unknown)
+    transforms     wv/Transform       mobile_base_link -> odom (the robot pose)
+    scan           wv/LaserScan       in mobile_base_link, raycast against the world
+    trail          wv/Path            the robot's recent trajectory (in odom)
+    markers        wv/Marker          a sphere riding the robot (3D tab)
+    pose_estimate  wv/Pose            a noisy localization estimate + covariance
+    battery        wv/Custom          frameless telemetry (Inspector)
+    log            wv/Log             a nav event stream (Log tab)
 
 The robot body frame is `mobile_base_link` (not the generic `base_link`) so this
 demo can run alongside robot_demo.py — both share the `odom` root, so both render
 together, but their body frames no longer collide in the shared TF tree.
 
-Dependency-free: POSTs JSON to the hub's /api/inject endpoint (§6.4), like the
-default mode of demo_source.py. Run the hub, then:
+Dependency-free: POSTs JSON to the hub's /api/inject endpoint (§6.4). Run the
+hub, then:
 
-    python3 sdks/python/map_sim_demo.py
-    # then open the app, add a Map tab, and select map / scan / plan=trail,
-    # robot frame = mobile_base_link, fixed frame = odom.
+    python3 sdks/python/demos/map_sim_demo.py
+    # Map tab: fixed frame = odom, map = map, scan = scan, path = trail,
+    #          robot frame = mobile_base_link.
+    # Log tab shows the nav stream; Inspector: pick battery / pose_estimate / etc.
 
 Reproduce a particular map with --seed; tune with --width/--height/--obstacles.
 """
@@ -77,6 +83,9 @@ class MapSim:
         self.x, self.y = self._find_free()
         self.yaw = self.rng.uniform(-math.pi, math.pi)
         self.trail: deque[tuple[float, float]] = deque(maxlen=150)
+        self.t = 0.0  # accumulated sim time, for the telemetry/log payloads
+        self.ticks = 0
+        self.cornered = False  # did this step have to turn away from an obstacle?
 
     # --- grid helpers ---
     def _occupied(self, wx: float, wy: float) -> bool:
@@ -115,6 +124,9 @@ class MapSim:
 
     # --- simulation ---
     def step(self, dt: float, speed: float) -> None:
+        self.t += dt
+        self.ticks += 1
+        self.cornered = False
         self.yaw += self.rng.uniform(-0.35, 0.35)  # wander
         for _ in range(16):
             nx = self.x + speed * dt * math.cos(self.yaw)
@@ -122,6 +134,7 @@ class MapSim:
             if not self._blocked(nx, ny):
                 self.x, self.y = nx, ny
                 break
+            self.cornered = True
             self.yaw = self.rng.uniform(-math.pi, math.pi)  # cornered → turn
         self.trail.append((self.x, self.y))
 
@@ -184,6 +197,55 @@ class MapSim:
             ],
         }
 
+    # --- extra telemetry (Inspector), a robot marker (3D), and a Log stream ---
+    def marker(self) -> dict:
+        """A translucent sphere riding the robot, anchored to its TF frame so it
+        follows along in the 3D tab."""
+        return {
+            "id": "robot",
+            "namespace": "map_sim",
+            "action": "add",
+            "type": "sphere",
+            "frame_id": "mobile_base_link",
+            "pose": {"position": [0.0, 0.0, 0.15], "orientation": [0, 0, 0, 1]},
+            "scale": [0.3, 0.3, 0.3],
+            "color": [0.2, 0.9, 0.5, 0.9],
+        }
+
+    def pose_estimate(self) -> dict:
+        """A noisy localization estimate of the robot pose (in odom), with an
+        anisotropic position covariance."""
+        wob = 0.08 * math.sin(self.t * 3.0)
+        return {
+            "id": "estimate",
+            "frame_id": "odom",
+            "position": [self.x + wob, self.y - wob, 0.0],
+            "orientation": quat_from_yaw(self.yaw),
+            # 6×6 row-major; position block xx=0.3, xy=0.1, yy=0.6.
+            "covariance": [0.3, 0.1, 0, 0, 0, 0, 0.1, 0.6] + [0] * 28,
+        }
+
+    def battery(self) -> dict:
+        """Frameless telemetry (wv/Custom) for the Inspector (and plottable)."""
+        return {
+            "voltage": round(48.0 + math.sin(self.t) * 0.5, 3),
+            "percent": round(50 + 50 * math.sin(self.t / 20.0), 1),
+            "charging": math.sin(self.t / 20.0) > 0,
+        }
+
+    def log_line(self) -> dict:
+        """A rotating wv/Log line for the Log tab: mostly INFO, a WARN whenever
+        the robot just had to turn away from an obstacle, plus periodic DEBUG and
+        ERROR so every level filter has something to act on."""
+        seq = self.ticks
+        if self.cornered:
+            return {"level": "WARN", "name": "nav", "message": "obstacle ahead — turning"}
+        if seq % 97 == 0:
+            return {"level": "ERROR", "name": "nav", "message": "lost track, relocalizing"}
+        if seq % 5 == 0:
+            return {"level": "DEBUG", "name": "nav", "message": f"pose ({self.x:.1f}, {self.y:.1f})"}
+        return {"level": "INFO", "name": "nav", "message": f"exploring… tick {seq}"}
+
     def frames(self) -> list[tuple[str, str, dict]]:
         scan = self.scan()  # updates self.known, so build the grid after it
         return [
@@ -191,6 +253,10 @@ class MapSim:
             ("transforms", "wv/Transform", self.transform()),
             ("scan", "wv/LaserScan", scan),
             ("trail", "wv/Path", self.trail_path()),
+            ("markers", "wv/Marker", self.marker()),
+            ("pose_estimate", "wv/Pose", self.pose_estimate()),
+            ("battery", "wv/Custom", self.battery()),
+            ("log", "wv/Log", self.log_line()),
         ]
 
 

@@ -3,6 +3,76 @@
 Browser-based visualization platform for robots and real-time systems.
 **Protocol-first · Source-agnostic · Tiling-panel workspace.**
 
+## Visualization tools
+
+The workspace is a tiling grid of independent **panels** — split a pane to add one, close to
+remove, maximize to focus (there's no tab bar; "switch between whole setups" is
+[named layouts](#quick-start), not tabs). Every panel is one of six tools; within a window they
+share one hub connection, one TF tree, and one clock.
+
+**Multiple monitors?** Open the app in as many browser windows or tabs as you like — each is an
+independent client of the same hub, so you can tile a few panels per window and spread them across
+several displays for a wall-of-dashboards setup (drag each window to its own monitor).
+
+Screenshots below are captured against the local stack with the bundled demos (see
+[docs/screenshots/](docs/screenshots) for how to reproduce them).
+
+### 🧊 3D
+
+![3D tab jogging a UR arm (Native IK + Send to robot) split over a Plot of all six joint states](docs/screenshots/robot.png)
+
+The main scene view (three.js), laid out as **Displays sidebar · viewport · Properties panel**.
+You add *display plugins*, toggle them, pick the **fixed frame**, and orbit/pan/zoom the camera;
+all displays anchor to the shared TF tree. The catalogue: **RobotModel** (URDF from a folder, a
+GitHub URL, the bundled demo, or a `wv/RobotModel` channel — driven live by `wv/JointState`, with
+**Jog mode** + drag-the-TCP IK), **TFFrames**, **Marker**, **PointCloud** (WebWorker-decoded),
+**LaserScan**, **OccupancyGrid**, **Path**, **Pose**, and the interactive **CoordinateFrame**
+gizmo. (Deep dive: [`packages/app/src/plugins/README.md`](packages/app/src/plugins/README.md).)
+
+### 📈 Plot
+
+*Pictured in the 3D screenshot above — the bottom pane traces all six joints at once via **ALL fields**.*
+
+Live, scrolling **time-series** organized as stacked subplots — each subplot auto-scales its own
+y-axis while sharing the global time window, so a small signal isn't flattened next to a large one.
+Pick a channel and a numeric field (or **ALL fields** to add every field at once, e.g. all joints
+of a `wv/JointState`). **Pause** freezes the time axis and lets you scroll/zoom back through the
+retained history.
+
+### 🖼️ Image
+
+![Image tab: a 2×2 camera grid with a layout picker (1×1 / 1×2 / 2×2 / 3×2) and a channel selector per cell](docs/screenshots/image.png)
+
+A configurable **camera grid** (1×1 up to 3×2). Each cell binds one `wv/Image` channel and blits
+decoded frames to a canvas — JPEG/PNG and raw RGB8 are all supported, scaled to fit. Async decode
+with frame-skipping, so a fast publisher never backs up the UI.
+
+### 🗺️ Map
+
+![Map 2D (left) with a discovered occupancy grid, robot, scan and trail; Inspector and Log panes on the right — all fed by map_sim_demo.py](docs/screenshots/map.png)
+
+A 2D top-down (orthographic) view for navigation: a `wv/OccupancyGrid` base map, a `wv/Path`
+trajectory, `wv/LaserScan` points, and a robot heading marker from a TF frame — all resolved into
+the shared fixed frame. Wheel to zoom about the cursor, drag to pan, **⤢ Fit** to frame the map;
+watch a map fill in SLAM-style as a robot explores.
+
+### 🔍 Inspector
+
+*Pictured in the Map screenshot above — the top-right pane inspects the live `transforms` messages.*
+
+Pick any channel and watch its messages stream live as pretty-printed JSON, with the channel's
+schema and update rate. The quickest way to see exactly what a source is publishing — indispensable
+when wiring up a new SDK, ROS topic, or demo before you build a richer view for it.
+
+### 📜 Log
+
+*Pictured in the Map screenshot above — the bottom-right pane is the `map_sim_demo.py` nav log stream.*
+
+A single, filtered, auto-scrolling **event stream** aggregating *every* `wv/Log` channel (the way
+the TF tree aggregates every transform channel). Filter by level (DEBUG/INFO/WARN/ERROR) and by
+free-text search on name + message; **Pause** freezes the view while logs keep buffering. Rows are
+colour-coded by severity.
+
 ## Live demo
 
 **▶ [robottool.github.io/webviz](https://robottool.github.io/webviz/)** — try it in your browser, no install.
@@ -37,7 +107,7 @@ protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
 | `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
 | `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
 | `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose`, `CoordinateFrame` |
-| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
+| `sdks/python` | Minimal `webviz.Client` plus demos: `map_sim_demo.py` (SLAM-style Map + nav log + telemetry, one script for Map/Log/Inspector), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
 
@@ -77,8 +147,7 @@ pnpm app        # opens http://localhost:5173
 Then feed it demo data (each in its own terminal):
 
 ```bash
-python3 sdks/python/demos/demo_source.py             # transforms / markers / nav / log (no pip deps)
-python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
+python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot, plus a nav log + telemetry — feeds Map / Log / Inspector (no pip deps)
 venv/bin/python3 sdks/python/demos/robot_demo.py     # UR5 that executes jog "Send to robot" commands for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)

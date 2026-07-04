@@ -59,7 +59,7 @@ say "Building @webviz/protocol (hub & app consume its dist/)"
 pnpm --filter @webviz/protocol build
 
 # --- 4. Python venv for the WS demos -----------------------------------------
-# The dependency-free /api/inject demos (demo_source.py, map_sim_demo.py) need
+# The dependency-free /api/inject demo (map_sim_demo.py) needs
 # nothing; the WS demos (robot/pointcloud/image) need websockets>=11, and the
 # external-IK solver demo (ik_solver_demo.py) also needs numpy.
 say "Creating Python venv (./venv) with websockets>=11 + numpy"

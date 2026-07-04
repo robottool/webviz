@@ -5,7 +5,7 @@ following the WebViz wire protocol. Requires the `websockets` package:
 
     pip install websockets
 
-For a dependency-free demo that needs no pip install, see `demo_source.py`,
+For a dependency-free demo that needs no pip install, see `map_sim_demo.py`,
 which publishes via the hub's HTTP `/api/inject` endpoint instead.
 """
 

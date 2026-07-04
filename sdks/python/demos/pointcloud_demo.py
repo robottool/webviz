@@ -5,8 +5,8 @@ Publishes a synthetic animated cloud (a traveling radial wave, intensity-colored
 on one binary `wv/PointCloud` channel, anchored to the `odom` frame so it shows
 at the origin with the default fixed frame.
 
-Unlike the HTTP demos (`demo_source.py`, `robot_demo.py`), binary frames need the
-WebSocket SDK, which needs the `websockets` package:
+Unlike the HTTP demo (`map_sim_demo.py`), binary frames need the WebSocket SDK,
+which needs the `websockets` package:
 
     pip install websockets
     python3 sdks/python/pointcloud_demo.py
