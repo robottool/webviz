@@ -37,7 +37,7 @@ protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
 | `packages/protocol` | `wv/*` schema TypeScript types, binary frame encode/decode, JSON frame helpers, vitest tests |
 | `packages/hub` | WebSocket broker (`:7777`), source/client roles, channel registry, `server_info` handshake, message fanout, layout persistence, REST + static serving (`:8080`) |
 | `packages/app` | Vite + React + TS app: `HubClient` → `TimeManager` → `MessageRouter` data path, connection/tab/settings stores, split-pane workspace, named/shared layouts, session recording **capture + playback**, and six live tabs — **Inspector**, **3D**, **Image**, **Plot**, **Map**, **Log**. The 3D tab (SceneManager + TFManager + plugin system) carries the full display catalogue: `RobotModel`, `TFFrames`, `Marker`, `PointCloud`, `LaserScan`, `OccupancyGrid`, `Path`, `Pose`, `CoordinateFrame` |
-| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (animated UR5), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
+| `sdks/python` | Minimal `webviz.Client` plus demos: `demo_source.py` (transforms/markers/nav/log), `map_sim_demo.py` (SLAM-style Map tab), `robot_demo.py` (UR5 that executes jog commands), `pointcloud_demo.py` (binary PointCloud), `image_demo.py` (RGB8 Image) |
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
 
@@ -79,7 +79,7 @@ Then feed it demo data (each in its own terminal):
 ```bash
 python3 sdks/python/demos/demo_source.py             # transforms / markers / nav / log (no pip deps)
 python3 sdks/python/demos/map_sim_demo.py            # SLAM-style map + wandering robot for the Map tab (no pip deps)
-venv/bin/python3 sdks/python/demos/robot_demo.py     # animated UR5 arm for the 3D tab (needs websockets)
+venv/bin/python3 sdks/python/demos/robot_demo.py     # UR5 that executes jog "Send to robot" commands for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/pointcloud_demo.py # animated binary PointCloud for the 3D tab (needs websockets)
 venv/bin/python3 sdks/python/demos/image_demo.py     # animated RGB8 Image for the Image tab (needs websockets)
 ```
@@ -88,26 +88,31 @@ Open the app, it auto-connects to `ws://localhost:7777`.
 
 - **Inspector tab**: pick a channel and watch live messages.
 - **3D tab**: add it from the `＋` menu and run `robot_demo.py` — a UR5 loads (URDF +
-  meshes fetched online over CORS, no local assets), drives around on the grid, and
-  waves. Toggle displays, pick the fixed frame, and edit plugin settings in the
-  Properties panel.
+  meshes fetched online over CORS, no local assets) and sits at the origin as a live
+  robot. It's a hub-side controller: set Joints ch. = `joint_states` and fixed frame =
+  `base_link`, then enable **Jog**, drag the tool tip, and click **Send to robot** — the
+  arm executes the commanded move (velocity-limited), streaming its feedback back so you
+  watch it sweep there. Toggle displays, pick the fixed frame, and edit plugin settings
+  in the Properties panel.
 - **Other tabs**: Image (camera grid), Plot (live time-series), Map (2D top-down), and
   Log (event stream) — add any from the `＋` menu. Split the workspace into panes, save
   named layouts, and record a session to `.wvrec` (then load it back for playback).
-- **Load your own URDF**: in the 3D tab's RobotModel properties, switch URDF to
-  **Local files**, click *Load URDF folder…*, and pick the folder containing your
-  `.urdf` + meshes. It validates (joints found, meshes loaded/failed). The robot
-  shows all joints at 0 until your pipeline publishes `wv/JointState` — pick that
-  channel (and a `wv/Transform` base frame) to drive it live. To move it yourself,
-  enable **Jog mode** (below).
+- **Load your own URDF**: in the 3D tab's RobotModel properties, click *Load URDF…*
+  and choose **Load URDF folder…** to pick the folder containing your `.urdf` + meshes.
+  It validates (joints found, meshes loaded/failed). An articulated robot stays hidden
+  until your pipeline publishes `wv/JointState` (so you never see a misleading all-zero
+  pose) — pick that channel (and a `wv/Transform` base frame) under **Live state** to
+  drive it live. To move it yourself, enable **Jog** (below).
   (To load a robot straight from a URL — with a ready-to-paste UR5 example — see
   [Live demo](#live-demo) above.)
-- **Drag the robot by its tool tip (IK)**: in RobotModel properties (serial arms only)
-  set Joints to **IK (drag TCP)** — the arm freezes at its current pose and a gizmo
-  appears on the tool tip. Drag it and the arm follows in real time. Two solver backends:
-  **Native** solves in-browser with a Jacobian solver (no hub needed), or **External**
-  publishes the target as `wv/Pose` and drives the arm from a `wv/JointState` channel your
-  own solver (MoveIt/KDL/ikfast/…) publishes back — same drag UX, your exact kinematics.
+- **Drag the robot by its tool tip (jog / IK)**: in RobotModel properties (serial arms
+  only) flip on the **Jog** toggle — a translucent shadow arm appears with a gizmo on the
+  tool tip while the solid robot keeps showing live state. Drag the gizmo and the shadow
+  follows in real time. Two solver backends: **Native** solves in-browser with a Jacobian
+  solver (no hub needed) and the drag is a preview — hit **Send to robot** to command the
+  shown pose once; or **External** publishes the target as `wv/Pose` and drives the arm
+  from a `wv/JointState` channel your own solver (MoveIt/KDL/ikfast/…) publishes back —
+  same drag UX, your exact kinematics.
   `venv/bin/python3 sdks/python/demos/ik_solver_demo.py` is a ready-to-run external solver (and a
   template): it solves `tcp_target` → `ik/joint_states` for the demo arm.
 
