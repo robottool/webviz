@@ -128,27 +128,61 @@ export class TFManager {
   }
 
   /**
-   * Resolve `frameId`'s pose expressed in the current fixed frame by composing
-   * the parent chain. Returns null if any link in the chain is unknown.
+   * Walk `frameId` up its parent chain, composing its pose into each successive
+   * ancestor, until `stopAt` or a frame with no known parent (the chain's root)
+   * is reached. Returns the pose expressed in that topmost frame, or null on a
+   * cycle.
    */
-  resolveToFixed(frameId: string, time?: number): ResolvedPose | null {
+  private composeUp(
+    frameId: string,
+    time: number | undefined,
+    stopAt?: string,
+  ): { top: string; position: THREE.Vector3; quaternion: THREE.Quaternion } | null {
     const position = new THREE.Vector3();
     const quaternion = new THREE.Quaternion();
     let current = frameId;
     const visited = new Set<string>();
 
-    while (current !== this.fixedFrame) {
+    while (current !== stopAt) {
       if (visited.has(current)) return null; // cycle guard
       visited.add(current);
 
       const sample = this.lookupTransform(current, time);
-      if (!sample) return null;
+      if (!sample) break; // no parent known: `current` is this chain's root
 
       // p_parent = R * p_current + t ; orientation_parent = R * orientation_current
       position.applyQuaternion(sample.rotation).add(sample.translation);
       quaternion.premultiply(sample.rotation);
       current = sample.parent;
     }
+    return { top: current, position, quaternion };
+  }
+
+  /**
+   * Resolve `frameId`'s pose expressed in the current fixed frame (tf2-style):
+   * if the fixed frame is an ancestor, compose straight up to it; otherwise
+   * walk *both* frames to their roots and, when they share one, combine the
+   * chains via that root — so any frame connected to the fixed frame through a
+   * common ancestor resolves (e.g. fixed frame `base_link` with `odom` a
+   * sibling subtree), not only descendants. Returns null when the two frames
+   * are in disconnected trees (or a chain has a cycle).
+   */
+  resolveToFixed(frameId: string, time?: number): ResolvedPose | null {
+    const frame = this.composeUp(frameId, time, this.fixedFrame);
+    if (!frame) return null;
+    if (frame.top === this.fixedFrame) {
+      return { position: frame.position, quaternion: frame.quaternion };
+    }
+
+    // Fixed frame is not an ancestor — express both in the shared root, then
+    // T_fixed_frame = (T_root_fixed)⁻¹ ∘ T_root_frame.
+    const fixed = this.composeUp(this.fixedFrame, time);
+    if (!fixed || fixed.top !== frame.top) return null;
+
+    const qInv = fixed.quaternion.clone().invert();
+    const pInv = fixed.position.clone().negate().applyQuaternion(qInv);
+    const position = frame.position.applyQuaternion(qInv).add(pInv);
+    const quaternion = frame.quaternion.premultiply(qInv);
     return { position, quaternion };
   }
 
