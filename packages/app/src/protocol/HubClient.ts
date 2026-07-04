@@ -28,6 +28,14 @@ export type ConnectionStatus =
 type ChannelListCb = (channels: ChannelInfo[]) => void;
 type StatusCb = (status: ConnectionStatus) => void;
 
+/** Handle to a client-side ("local") channel injected via `advertiseLocal` —
+ * frames published through it are delivered to subscribers exactly like a hub
+ * data frame, but never touch the network. */
+export interface LocalPublishHandle {
+  send(data: unknown, timestamp?: number): void;
+  close(): void;
+}
+
 interface SubEntry {
   handler: MessageHandler;
   maxHz?: number;
@@ -63,6 +71,11 @@ export class HubClient {
 
   private channels = new Map<number, ChannelInfo>();
   private nameToId = new Map<string, number>();
+  /** Client-side channels advertised via `advertiseLocal` (e.g. demo mode). Kept
+   * separately so they survive a `server_info` wipe on (re)connect and don't
+   * collide with hub ids (they use negative ids). */
+  private localChannels = new Map<number, ChannelInfo>();
+  private nextLocalId = -1;
   readonly router = new MessageRouter();
   /** Sync-window buffer (§8): frames flush to the router in timestamp order. */
   readonly time = new TimeManager((m) => this.router.dispatch(m));
@@ -222,6 +235,49 @@ export class HubClient {
     for (const name of this.subs.keys()) this.bindSub(name, force);
   }
 
+  /**
+   * Advertise a purely client-side channel and return a handle for pushing
+   * frames into it. Frames are dispatched through the same MessageRouter as hub
+   * data frames, so any subscriber (a plugin, TFManager, a picker dropdown) sees
+   * it as an ordinary named channel — but nothing is sent over the socket. Used
+   * by demo mode to fake `demo/*` live-state channels with no hub. Re-advertising
+   * an existing name reuses its id (last writer wins the delivery).
+   */
+  advertiseLocal(name: string, schema: string): LocalPublishHandle {
+    let id = this.nameToId.get(name);
+    if (id === undefined || !this.localChannels.has(id)) {
+      id = this.nextLocalId--;
+      const info: ChannelInfo = { id, name, schema, encoding: 'json' };
+      this.localChannels.set(id, info);
+      this.addChannel(info);
+      this.rebindAll(false); // bind any subscriber that was waiting on this name
+      this.emitChannelList();
+    }
+    const channelId = id;
+    return {
+      send: (data, timestamp) => {
+        this.router.dispatch({
+          channelId,
+          channelName: name,
+          timestamp: timestamp ?? performance.now() / 1000,
+          data,
+          binary: false,
+        });
+      },
+      close: () => this.unadvertiseLocal(name),
+    };
+  }
+
+  private unadvertiseLocal(name: string): void {
+    const id = this.nameToId.get(name);
+    if (id === undefined || !this.localChannels.has(id)) return;
+    this.localChannels.delete(id);
+    this.channels.delete(id);
+    this.nameToId.delete(name);
+    this.bindSub(name); // tear down the now-stale registration
+    this.emitChannelList();
+  }
+
   onChannelList(cb: ChannelListCb): () => void {
     this.channelListCbs.add(cb);
     return () => this.channelListCbs.delete(cb);
@@ -275,6 +331,9 @@ export class HubClient {
     this.channels.clear();
     this.nameToId.clear();
     for (const c of info.channels) this.addChannel(c);
+    // Local (demo) channels aren't the hub's to wipe — re-inject them so a
+    // reconnect doesn't drop client-side live-state.
+    for (const c of this.localChannels.values()) this.addChannel(c);
     // A fresh server_info means a (re)connected socket: the broker has no record
     // of our subscriptions, so force-resend them all (re-keying to current ids).
     this.rebindAll(true);

@@ -1,30 +1,48 @@
 #!/usr/bin/env python3
-"""WebViz robot demo source — feeds the 3D tab's RobotModel plugin.
+"""WebViz robot demo — a UR5 that executes jog "Send to robot" commands.
 
-Publishes three channels so a UR5 arm appears, drives around, and waves:
+This is the *hub-side* twin of the app's in-browser demo-mode executor: a real
+robot on the hub that receives a commanded joint config and drives itself there.
 
-  robot_description  wv/RobotModel   URDF reference (served by the hub at :8080)
-  joint_states       wv/JointState   the 6 UR joints, animated
-  transforms         wv/Transform    odom -> base_link (the arm's base pose)
+Publishes (as a hub **source**, `role=source`):
 
-Run the hub (`pnpm hub`) and app (`pnpm app`), then:
+  robot_description  wv/RobotModel   URDF reference (browser fetches it over CORS)
+  joint_states       wv/JointState   the robot's *current* joints (feedback), streamed
+  transforms         wv/Transform    base_link -> odom (a static base pose)
 
-    python3 sdks/python/robot_demo.py
+Subscribes (as a hub **client**, `role=client`):
 
-Zero dependencies — POSTs to the hub's /api/inject endpoint (§6.4). The URDF and
-meshes are loaded by the browser directly from the upstream example-robot-data
-repo over CORS (raw.githubusercontent.com), so no local assets are needed; the
-RobotModel plugin resolves the URDF's package:// mesh refs against that repo base.
-Override the source with --urdf-url (any CORS-enabled, flat/non-xacro URDF).
+  ik/joint_states    wv/JointState   the *commanded* joint config from jog "Send to robot"
+
+The arm starts at home and, whenever a command arrives, drives each joint toward
+it at a limited speed (a velocity-limited controller), streaming its feedback the
+whole time — so the browser shows the arm sweeping to the commanded pose exactly
+as it would for a real controller.
+
+Needs `websockets` (>= 11); `./setup.sh` provisions ./venv with it:
+
+    ./dev.sh                                          # hub + app
+    venv/bin/python3 sdks/python/demos/robot_demo.py
+
+In the app (3D tab, RobotModel): set Joints ch. = `joint_states`, base frame and
+Fixed frame = `base_link`; enable **Jog**, drag the tool tip, click **Send to
+robot**. The arm executes the move. Override the command topic with
+--command-channel if you changed the app's IK solution channel.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import math
+import os
+import sys
+import threading
 import time
-import urllib.request
+
+# Run straight from the repo: make the sibling `webviz` package importable
+# (this file lives in sdks/python/demos; the package in sdks/python).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from webviz import Client, Consumer  # noqa: E402
 
 UR_JOINTS = [
     "shoulder_pan_joint",
@@ -34,12 +52,6 @@ UR_JOINTS = [
     "wrist_2_joint",
     "wrist_3_joint",
 ]
-
-
-def quat_from_yaw(yaw: float) -> list[float]:
-    """Quaternion [x, y, z, w] for a rotation about +Z."""
-    return [0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)]
-
 
 # Upstream UR5 description (flat URDF + colocated .dae/.stl meshes), served over
 # CORS by raw.githubusercontent.com — the browser fetches it directly, no hub
@@ -51,90 +63,105 @@ DEFAULT_URDF_URL = (
 
 
 def robot_model(urdf_url: str) -> dict:
-    return {
-        "name": "ur5",
-        "urdf_url": urdf_url,
-    }
+    return {"name": "ur5", "urdf_url": urdf_url}
 
 
-def joint_state(t: float) -> dict:
-    # Each joint sweeps on its own phase so the whole arm moves.
-    positions = [
-        math.sin(t * 0.5) * 1.5,
-        math.sin(t * 0.7) * 0.8 - 0.8,
-        math.sin(t * 0.9) * 1.0,
-        math.sin(t * 1.1) * 1.2,
-        math.sin(t * 0.6) * 1.0,
-        t % (2 * math.pi),
-    ]
-    return {"names": UR_JOINTS, "positions": positions}
-
-
-def base_transform(t: float) -> dict:
+def base_transform() -> dict:
+    """Static base pose: the arm sits at the odom origin."""
     return {
         "frame_id": "base_link",
         "parent_frame_id": "odom",
-        "translation": [1.5 * math.cos(t * 0.2), 1.5 * math.sin(t * 0.2), 0.0],
-        "rotation": quat_from_yaw(t * 0.2 + math.pi / 2),
+        "translation": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0, 1.0],
     }
 
 
-def inject(inject_url: str, channel: str, schema: str, data: dict) -> None:
-    body = json.dumps(
-        {
-            "channel": channel,
-            "schema": schema,
-            "source_id": "robot_demo",
-            "timestamp": time.time(),
-            "data": data,
-        }
-    ).encode()
-    req = urllib.request.Request(
-        inject_url, data=body, headers={"Content-Type": "application/json"}
-    )
-    urllib.request.urlopen(req, timeout=2).read()
+class RobotController:
+    """Holds the arm's current joint config and drives it toward the last
+    commanded goal at a limited speed — the hub-side twin of the app's
+    DemoExecutor. A commanded config arrives on the reader thread (`command`);
+    the publish loop advances the motion each tick (`step`)."""
+
+    def __init__(self, joints: list[str], max_vel: float):
+        self.joints = joints
+        self.max_vel = max_vel  # rad/s
+        self._lock = threading.Lock()
+        self.current = {j: 0.0 for j in joints}
+        self.goal = dict(self.current)
+
+    def command(self, data: dict, _ts: float) -> None:
+        """A commanded joint config from "Send to robot": update the goal. The
+        command is held/keepalive'd by the app, so this just re-latches the same
+        goal until a new send changes it."""
+        names = data.get("names", [])
+        positions = data.get("positions", [])
+        with self._lock:
+            for name, pos in zip(names, positions):
+                if name in self.goal:
+                    self.goal[name] = float(pos)
+
+    def step(self, dt: float) -> dict:
+        """Advance each joint toward its goal by at most max_vel*dt, and return
+        the current config as a wv/JointState."""
+        max_step = self.max_vel * dt
+        with self._lock:
+            for j in self.joints:
+                err = self.goal[j] - self.current[j]
+                self.current[j] += max(-max_step, min(max_step, err))
+            return {"names": self.joints, "positions": [self.current[j] for j in self.joints]}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="WebViz robot demo source")
-    parser.add_argument(
-        "--http-url", default="http://localhost:8080", help="hub HTTP base URL"
-    )
-    parser.add_argument(
+    ap = argparse.ArgumentParser(description="WebViz robot demo — executes jog commands")
+    ap.add_argument("--url", default="ws://localhost:7777", help="hub WS URL")
+    ap.add_argument(
         "--urdf-url",
         default=DEFAULT_URDF_URL,
         help="CORS-enabled URL the browser fetches the URDF (+ meshes) from",
     )
-    parser.add_argument("--rate", type=float, default=30.0, help="publish rate (Hz)")
-    args = parser.parse_args()
+    ap.add_argument(
+        "--command-channel",
+        default="ik/joint_states",
+        help="wv/JointState the jog 'Send to robot' publishes (app's IK solution channel)",
+    )
+    ap.add_argument("--rate", type=float, default=30.0, help="feedback publish rate (Hz)")
+    ap.add_argument(
+        "--max-vel", type=float, default=1.0, help="max joint speed while executing (rad/s)"
+    )
+    args = ap.parse_args()
 
-    inject_url = f"{args.http_url}/api/inject"
+    source = Client(f"{args.url}?role=source&id=robot_demo")
+    model_ch = source.advertise("robot_description", "wv/RobotModel")
+    joints_ch = source.advertise("joint_states", "wv/JointState")
+    tf_ch = source.advertise("transforms", "wv/Transform")
+
+    controller = RobotController(UR_JOINTS, args.max_vel)
+    consumer = Consumer(f"{args.url}?role=client")
+    consumer.subscribe(args.command_channel, controller.command)
+
+    print(
+        f"[robot_demo] streaming joint_states at {args.rate} Hz; executing commands "
+        f"on '{args.command_channel}'. In the app: Joints ch.=joint_states, fixed "
+        "frame=base_link, then Jog → drag → Send to robot. Ctrl+C to stop."
+    )
     period = 1.0 / args.rate
-    t0 = time.time()
     last_model = 0.0
-    print(f"[robot_demo] injecting to {inject_url} at {args.rate} Hz (Ctrl+C to stop)")
     try:
         while True:
             now = time.time()
-            t = now - t0
-            try:
-                # Re-advertise the model once a second so late clients get it.
-                if now - last_model > 1.0:
-                    inject(
-                        inject_url,
-                        "robot_description",
-                        "wv/RobotModel",
-                        robot_model(args.urdf_url),
-                    )
-                    last_model = now
-                inject(inject_url, "joint_states", "wv/JointState", joint_state(t))
-                inject(inject_url, "transforms", "wv/Transform", base_transform(t))
-            except Exception as err:  # noqa: BLE001
-                print(f"[robot_demo] inject failed: {err}")
-                time.sleep(1.0)
+            # Re-advertise the model + static base once a second so late clients
+            # still get them (the hub fans out live frames, doesn't latch).
+            if now - last_model > 1.0:
+                model_ch.send(robot_model(args.urdf_url))
+                tf_ch.send(base_transform())
+                last_model = now
+            joints_ch.send(controller.step(period))
             time.sleep(period)
     except KeyboardInterrupt:
         print("\n[robot_demo] stopped")
+    finally:
+        consumer.close()
+        source.close()
 
 
 if __name__ == "__main__":

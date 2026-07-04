@@ -9,6 +9,7 @@ import {
   autoHubUrl,
 } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
+import { hubClient } from '../protocol/HubClient.js';
 import {
   useSettingsStore,
   type ThemeId,
@@ -44,9 +45,33 @@ export function TopBar() {
 function SettingsMenu() {
   const btnRef = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const { theme, syncWindowMs, recordingCapMB, hubUrl, angleUnit, lengthUnit, set, reset } =
+  const { theme, syncWindowMs, recordingCapMB, hubUrl, angleUnit, lengthUnit, demoMode, set, reset } =
     useSettingsStore();
   const { status, connect } = useConnectionStore();
+
+  // Demo mode replaces the session with an in-app fake robot; if there's real
+  // work to lose (open panels or live hub data), confirm first, then reset the
+  // workspace so nothing conflicts with the demo.
+  const toggleDemo = (on: boolean) => {
+    if (on) {
+      const { tabs, newWorkspace } = useTabStore.getState();
+      const hasPanels = Object.keys(tabs).length > 0;
+      const liveData =
+        hubClient.getStatus() === 'connected' && hubClient.getChannels().length > 0;
+      if (
+        (hasPanels || liveData) &&
+        !window.confirm(
+          'Demo mode will close the currently open panels, and any loaded ' +
+            'robot / live hub data will be cleared. You can save the current ' +
+            'layout and reload it later. Continue?',
+        )
+      ) {
+        return; // leave demo mode off
+      }
+      newWorkspace();
+    }
+    set({ demoMode: on });
+  };
 
   const open = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -166,6 +191,19 @@ function SettingsMenu() {
               <div className="settings-note muted">
                 <span className={`status-dot status-${status}`} />{' '}
                 {STATUS_LABEL[status] ?? status} · blank = auto ({autoHubUrl}).
+              </div>
+              <div className="layout-sep" />
+              <label className="settings-row">
+                <span>Demo mode</span>
+                <input
+                  type="checkbox"
+                  checked={demoMode}
+                  onChange={(e) => toggleDemo(e.target.checked)}
+                />
+              </label>
+              <div className="settings-note muted">
+                Fakes a robot's live state client-side; “Send to robot” plays the
+                move onto the dummy. No hub needed.
               </div>
               <div className="layout-sep" />
               <div className="tab-add-item" onClick={reset}>

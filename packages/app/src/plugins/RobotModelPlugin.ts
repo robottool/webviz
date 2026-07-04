@@ -24,6 +24,8 @@ import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '..
 import { LocalAssetResolver, type PickedFile } from '../core/meshResolver.js';
 import { basename, defaultAssetBase, extOf, loadMeshFromUrl } from '../core/meshLoad.js';
 import { RobotIkController, type IkBackend, type IkResidual } from './RobotIkController.js';
+import { RobotDemoController, type DemoHost } from './RobotDemoController.js';
+import { sourcePublisher } from '../core/sourcePublisher.js';
 
 export type { IkBackend } from './RobotIkController.js';
 
@@ -223,6 +225,10 @@ export class RobotModelPlugin implements DisplayPlugin {
   private unsubChannelList: (() => void) | null = null;
   private changeCbs = new Set<() => void>();
 
+  /** Owns the demo-mode lifecycle (fake live-state channels + interpolated
+   * "Send to robot"); reaches back in through a `DemoHost` adapter. */
+  private demoCtl!: RobotDemoController;
+
   constructor(
     readonly id: string,
     initial?: Record<string, unknown>,
@@ -266,6 +272,35 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.ctx = ctx;
     this.unsubChannelList = ctx.hub.onChannelList(() => this.syncSubscriptions());
     this.syncSubscriptions();
+    this.demoCtl = new RobotDemoController(ctx.hub, this.demoHost());
+  }
+
+  /** Adapter exposing just the slice of plugin state the demo controller drives,
+   * so the plugin's internals stay private and there's no import cycle. */
+  private demoHost(): DemoHost {
+    return {
+      hasRobot: () => this.robot !== null,
+      rootLinkName: () => this.rootLinkName(),
+      fixedFrame: () => this.ctx.scene.getFixedFrame(),
+      monitorJointState: () => this.jointStateOf(this.robot),
+      commandChannel: () => this.settings.ik_solution_channel,
+      bindLiveState: (jointChannel, rootFrame) => {
+        this.settings.joint_source = 'channel';
+        this.settings.joint_channel = jointChannel;
+        this.settings.root_frame = rootFrame;
+        this.bindJoints();
+        this.jointsDirty = true;
+      },
+      clearRobot: () => this.clearRobot(),
+      disableJog: () => {
+        this.settings.jog = false;
+        this.exitJog();
+      },
+      afterChange: () => {
+        this.emitChange();
+        this.ctx.scene.requestRender();
+      },
+    };
   }
 
   // --- change notifications (drive the Properties UI) ---
@@ -281,6 +316,13 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   getReport(): ValidationReport {
     return this.report;
+  }
+
+  /** True when an articulated robot is loaded but hidden pending its first live
+   * joint state (mirrors the `onRender` visibility gate) — drives the Properties
+   * "waiting for live joint states" hint. */
+  isAwaitingJoints(): boolean {
+    return this.report.loaded && this.report.jointInfo.length > 0 && this.latestJoints === null;
   }
 
   // --- channel subscriptions ---
@@ -312,10 +354,14 @@ export class RobotModelPlugin implements DisplayPlugin {
     if (!name) return;
     this.unsubJoints = this.ctx.hub.subscribe(name, (m) => {
       if (m.binary) return;
+      const first = this.latestJoints === null;
       this.latestJoints = m.data as JointState;
       if (this.settings.joint_source === 'channel') {
         this.jointsDirty = true;
         this.ctx.scene.requestRender();
+        // First live sample reveals the robot — refresh Properties so the
+        // "waiting for joints" hint clears.
+        if (first) this.emitChange();
       }
     });
   }
@@ -537,11 +583,6 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.report.loaded = true;
     this.report.robotName = robot.robotName ?? '';
     this.report.jointInfo = this.computeJointInfo(robot);
-    // No joint-channel data yet → show every joint at 0 (clamped to its limits);
-    // channel messages override these when they arrive.
-    for (const j of this.report.jointInfo) {
-      robot.setJointValue(j.name, clamp(0, j.lower, j.upper));
-    }
     this.ikFeasible = this.computeIkFeasible();
     this.applyOpacity();
     this.jointsDirty = true;
@@ -554,6 +595,8 @@ export class RobotModelPlugin implements DisplayPlugin {
       if (this.ikFeasible) this.enterJog();
       else this.settings.jog = false;
     }
+    // Demo mode: (re)fake the live-state channels for the new robot.
+    this.demoCtl.onRobotLoaded();
     // Re-frame the viewport once the (re)loaded robot's meshes settle.
     this.ctx.scene.armAutoFit();
     this.ctx.scene.requestRender();
@@ -583,12 +626,17 @@ export class RobotModelPlugin implements DisplayPlugin {
 
   onRender(): void {
     if (!this.robot) return;
-    // Monitor joints come from the channel (0 until data arrives); the jog shadow
-    // (if any) is driven independently by its own IK controller, not here.
+    // Monitor joints come from the channel; the jog shadow (if any) is driven
+    // independently by its own IK controller, not here.
     if (this.jointsDirty && this.latestJoints) {
       this.applyJoints(this.latestJoints);
       this.jointsDirty = false;
     }
+    // Don't render an articulated robot as a misleading all-zero pose before any
+    // live joint state has arrived — only show it once live state is streaming.
+    // (Demo mode's executor publishes immediately, so its dummy appears right
+    // away.) A robot with no actuated joints has nothing to wait for, so show it.
+    this.robot.visible = this.latestJoints !== null || this.report.jointInfo.length === 0;
     this.placeInFixedFrame();
   }
 
@@ -706,10 +754,21 @@ export class RobotModelPlugin implements DisplayPlugin {
         targetChannel: this.settings.ik_target_channel,
         solutionChannel: this.settings.ik_solution_channel,
         wRot: this.settings.ik_orient_weight,
+        publish: this.ikPublisher(),
       },
       () => this.emitChange(),
     );
     this.emitChange();
+  }
+
+  /** How the IK controller advertises its target/solution channels: an in-app
+   * local channel in demo mode (the DemoExecutor listens there, no hub needed),
+   * else the hub source socket so a *real* robot receives the same topics. The
+   * jog UX and published topics are identical either way — only the wire differs. */
+  private ikPublisher() {
+    return this.demoCtl.isActive()
+      ? (name: string, schema: string) => this.ctx.hub.advertiseLocal(name, schema)
+      : (name: string, schema: string) => sourcePublisher.advertise(name, schema);
   }
 
   /** Leave jog mode: tear down the gizmo + shadow; the monitor is unaffected. */
@@ -790,10 +849,71 @@ export class RobotModelPlugin implements DisplayPlugin {
     return this.ik?.getJointsAtLimit() ?? [];
   }
 
-  /** Publish the current IK target pose once as wv/Pose and hold it (the native
-   * "Send to robot" action). No-op when not in IK mode. */
+  /**
+   * "Send to robot": publish the IK target pose + joint solution once and hold
+   * them — uniform for demo and real robots. The transport is chosen at
+   * `enterJog` (`ikPublisher`): in demo mode the frames go to an in-app channel
+   * the `DemoExecutor` consumes to animate the dummy; otherwise to the hub, where
+   * a real robot receives the same topics. No demo-vs-real branch here.
+   */
   sendIkTarget(): void {
     this.ik?.sendTarget();
+  }
+
+  /** Unload the current robot and reset all load/live-state to an empty display. */
+  private clearRobot(): void {
+    this.ctx?.scene.removeObject(this.id);
+    this.robot = null;
+    this.loadedKey = '';
+    this.report = emptyReport();
+    this.ikFeasible = false;
+    this.latestJoints = null;
+    this.jointsDirty = false;
+    this.localResolver?.dispose();
+    this.localResolver = null;
+    this.localFiles = [];
+    this.remoteUrdfBase = null;
+    this.remoteUrdfUrl = null;
+    this.remoteMeshByBasename = false;
+  }
+
+  /** Actuated (non-fixed) joints of a robot as a wv/JointState at their current
+   * values. */
+  private jointStateOf(robot: URDFRobot | null): JointState {
+    const names: string[] = [];
+    const positions: number[] = [];
+    if (robot) {
+      for (const [name, j] of Object.entries(robot.joints)) {
+        if (j.jointType === 'fixed') continue;
+        const jv = j as unknown as { jointValue?: number[]; angle?: number };
+        names.push(name);
+        positions.push(jv.jointValue?.[0] ?? jv.angle ?? 0);
+      }
+    }
+    return { names, positions };
+  }
+
+  /** The shallowest URDF link (the base) — the frame the demo base transform
+   * places at the fixed-frame origin. */
+  private rootLinkName(): string {
+    if (!this.robot) return 'base_link';
+    const root = this.robot as unknown as THREE.Object3D;
+    let best = '';
+    let bestDepth = Infinity;
+    this.robot.traverse((n) => {
+      if (!(n as unknown as { isURDFLink?: boolean }).isURDFLink) return;
+      let depth = 0;
+      let p: THREE.Object3D | null = n.parent;
+      while (p && p !== root.parent) {
+        depth++;
+        p = p.parent;
+      }
+      if (depth < bestDepth) {
+        bestDepth = depth;
+        best = (n as unknown as { name: string }).name;
+      }
+    });
+    return best || 'base_link';
   }
 
   /** Current TCP target pose (xyz m + XYZ-euler rad), or null when not jogging. */
@@ -852,16 +972,13 @@ export class RobotModelPlugin implements DisplayPlugin {
     this.unsubChannelList?.();
     this.unsubModel?.();
     this.unsubJoints?.();
+    this.demoCtl?.dispose();
     this.exitJog();
     this.localResolver?.dispose();
     this.ctx?.scene.removeObject(this.id);
     this.robot = null;
     this.changeCbs.clear();
   }
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
 }
 
 export const robotModelFactory: PluginFactory = (id, initial) => new RobotModelPlugin(id, initial);

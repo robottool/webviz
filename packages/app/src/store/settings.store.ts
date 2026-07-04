@@ -34,6 +34,10 @@ export interface Settings {
   angleUnit: AngleUnit;
   /** Linear display unit (prismatic joints, TCP x/y/z). */
   lengthUnit: LengthUnit;
+  /** Demo mode: RobotModel fakes `demo/joint_states` + `demo/base_frame` live
+   * state client-side (no hub) and "Send to robot" plays an interpolated move
+   * onto the monitor. Off = live data only (RobotModelPlugin). */
+  demoMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -43,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hubUrl: '',
   angleUnit: 'deg',
   lengthUnit: 'mm',
+  demoMode: false,
 };
 
 const LS_KEY = 'webviz.settings';
@@ -93,6 +98,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       hubUrl: patch.hubUrl ?? get().hubUrl,
       angleUnit: patch.angleUnit ?? get().angleUnit,
       lengthUnit: patch.lengthUnit ?? get().lengthUnit,
+      demoMode: patch.demoMode ?? get().demoMode,
     };
     apply(next);
     persist(next);

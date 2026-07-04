@@ -24,12 +24,18 @@ import type { JointState, PoseStamped } from '@webviz/protocol';
 import type { SceneManager } from '../core/SceneManager.js';
 import type { HubClient } from '../protocol/HubClient.js';
 import { PoseGizmo } from '../core/poseGizmo.js';
-import { sourcePublisher, type PublishHandle } from '../core/sourcePublisher.js';
+import { type PublishHandle } from '../core/sourcePublisher.js';
 import { IK_DEFAULTS, orientationError, solveDampedLeastSquares } from '../core/ik.js';
 
 type JointType = 'revolute' | 'continuous' | 'prismatic';
 
 export type IkBackend = 'native' | 'external';
+
+/** Advertise a channel to publish target/solution frames on. The plugin injects
+ * the transport: the hub (`sourcePublisher`) for a real robot, or an in-app
+ * local channel (`HubClient.advertiseLocal`) in demo mode — so the *same topics*
+ * are published either way, and only the wire differs (see RobotDemoController). */
+export type Publisher = (name: string, schema: string) => PublishHandle;
 
 export interface IkConfig {
   backend: IkBackend;
@@ -39,6 +45,8 @@ export interface IkConfig {
   solutionChannel: string;
   /** Native: orientation task weight (0–1); position weight is fixed at 1. */
   wRot: number;
+  /** How target/solution channels are advertised (hub vs in-app local). */
+  publish: Publisher;
 }
 
 interface ChainJoint {
@@ -76,6 +84,7 @@ export class RobotIkController {
   private readonly backend: IkBackend;
   private readonly targetChannel: string;
   private readonly solutionChannel: string;
+  private readonly publish: Publisher;
   private targetHandle: PublishHandle | null = null;
   private jointHandle: PublishHandle | null = null;
   private unsubSolution: (() => void) | null = null;
@@ -107,6 +116,7 @@ export class RobotIkController {
     this.backend = config.backend;
     this.targetChannel = config.targetChannel;
     this.solutionChannel = config.solutionChannel;
+    this.publish = config.publish;
     this.wRot = config.wRot;
     this.gizmoId = `${baseId}:ik-gizmo`;
     this.buildChain(tcpLinkName);
@@ -185,7 +195,7 @@ export class RobotIkController {
   /** External: advertise the target channel, subscribe to the solution channel,
    * and keep the target alive so a solver that starts later latches onto it. */
   private startExternal(): void {
-    this.targetHandle = sourcePublisher.advertise(this.targetChannel, 'wv/Pose', 'json');
+    this.targetHandle = this.publish(this.targetChannel, 'wv/Pose');
     this.unsubSolution = this.hub.subscribe(this.solutionChannel, (m) => {
       if (m.binary) return;
       this.applyExternalJoints(m.data as JointState);
@@ -232,10 +242,10 @@ export class RobotIkController {
    */
   sendTarget(): void {
     if (!this.targetHandle) {
-      this.targetHandle = sourcePublisher.advertise(this.targetChannel, 'wv/Pose', 'json');
+      this.targetHandle = this.publish(this.targetChannel, 'wv/Pose');
     }
     if (!this.jointHandle) {
-      this.jointHandle = sourcePublisher.advertise(this.solutionChannel, 'wv/JointState', 'json');
+      this.jointHandle = this.publish(this.solutionChannel, 'wv/JointState');
     }
     this.lastSentPose = this.currentTargetPose();
     this.lastSentJoints = this.currentJointState();

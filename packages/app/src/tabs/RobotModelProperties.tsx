@@ -281,6 +281,15 @@ export function RobotModelProperties({
         </>
       )}
 
+      {/* Loaded but hidden pending live joints (see RobotModelPlugin.onRender). */}
+      {plugin.isAwaitingJoints() && (
+        <div className="report muted" style={{ marginTop: 6 }}>
+          {s.joint_channel
+            ? `⏳ Waiting for live joint states on “${s.joint_channel}”…`
+            : '⏳ Loaded — pick a joint-state channel under Live state to show the robot.'}
+        </div>
+      )}
+
       {showMissing &&
         createPortal(
           <div className="modal-backdrop" onClick={() => setShowMissing(false)}>
@@ -433,8 +442,8 @@ export function RobotModelProperties({
 
       {report.loaded && (
         <>
-          {/* --- Live state: joints from a channel + base pose from TF; both
-              show 0 / identity until data arrives. --- */}
+          {/* --- Live state: joints from a channel (robot stays hidden until the
+              first sample) + base pose from TF (identity until it resolves). --- */}
           {sectionToggle('Live state', 'live')}
           {!collapsed.live && (
             <>
@@ -460,7 +469,9 @@ export function RobotModelProperties({
           )}
 
           {/* --- Jog: drive a translucent shadow so the solid robot keeps
-              showing live state. Serial arms only. --- */}
+              showing live state. Serial arms only. In demo mode "Send to robot"
+              animates the dummy; otherwise it commands the real robot (native
+              one-shot publish / external solver round-trip). --- */}
           {plugin.isIkFeasible() && (
             <>
               <label
@@ -682,7 +693,9 @@ function IkPanel({
   const [target, setTarget] = useState(s.ik_target_channel);
   const [solution, setSolution] = useState(s.ik_solution_channel);
   const external = s.ik_backend === 'external';
+  const demoMode = useSettingsStore((st) => st.demoMode);
   // Native "Send to robot": publish the final pose on demand, with a brief ✓.
+  // In demo mode the same button plays an interpolated move onto the dummy robot.
   const [sent, setSent] = useState(false);
   const sentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendToRobot = () => {
@@ -781,8 +794,13 @@ function IkPanel({
             />
           </label>
           <button style={{ width: '100%', marginTop: 4 }} onClick={sendToRobot}>
-            {sent ? 'Sent ✓' : 'Send to robot'}
+            {sent ? (demoMode ? 'Executing…' : 'Sent ✓') : 'Send to robot'}
           </button>
+          {demoMode && (
+            <div className="report muted">
+              Demo mode: drives the dummy robot to this pose (no hub).
+            </div>
+          )}
         </>
       )}
 
