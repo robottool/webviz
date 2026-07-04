@@ -1,0 +1,43 @@
+# Build + typecheck + test on every push/PR. Two independent jobs:
+#   js  — the pnpm workspace (protocol must build before hub/app typecheck,
+#         since they import its dist/ via workspace:*)
+#   cpp — the header-only C++ SDK (test_payloads.cpp guards the cross-language
+#         binary payload contract against binary.ts)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # No `version:` here — pnpm/action-setup@v4 reads it from the
+      # `packageManager` field in package.json (same note as pages.yml).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Hub & app import @webviz/protocol from its dist/, so build it first.
+      - run: pnpm --filter @webviz/protocol build
+
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: cmake -S sdks/cpp -B build
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
