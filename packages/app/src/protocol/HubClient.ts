@@ -15,7 +15,7 @@ import {
   type Advertise,
   type Unadvertise,
 } from '@webviz/protocol';
-import { MessageRouter, type MessageHandler } from './MessageRouter.js';
+import { MessageRouter, type MessageHandler, type RoutedMessage } from './MessageRouter.js';
 import { TimeManager } from '../core/TimeManager.js';
 import { recorder } from '../core/recorder.js';
 
@@ -87,6 +87,15 @@ export class HubClient {
    * under (`boundId`), and the router unregister fns so we can re-key them.
    */
   private subs = new Map<string, SubState>();
+
+  /**
+   * Last message per *latched* channel name. The hub replays its latched cache
+   * when we send `subscribe` — but that only reaches the *first* subscriber;
+   * a panel binding the same channel later (same socket, no new `subscribe` op)
+   * would otherwise wait for the next publish, which for one-shot data never
+   * comes. This mirror replays it to those late local subscribers.
+   */
+  private latchedLast = new Map<string, RoutedMessage>();
 
   private channelListCbs = new Set<ChannelListCb>();
   private statusCbs = new Set<StatusCb>();
@@ -170,6 +179,20 @@ export class HubClient {
     // and `bindSub` will run again when the channel appears (advertise) or the
     // connection (re)establishes (server_info).
     this.bindSub(channelName);
+
+    // Latched channel with a known latest value: replay it to this handler
+    // (async, so subscribe() never re-enters the caller). Duplicate delivery
+    // with the hub's own replay is possible but harmless — latched semantics
+    // are latest-value, so handlers must be idempotent per frame anyway.
+    const cached = this.latchedLast.get(channelName);
+    if (cached !== undefined) {
+      const s = sub;
+      queueMicrotask(() => {
+        if (this.subs.get(channelName) === s && s.entries.has(entry)) {
+          handler(cached);
+        }
+      });
+    }
 
     return () => {
       const s = this.subs.get(channelName);
@@ -301,13 +324,15 @@ export class HubClient {
     const decoded = decodeFrame(raw);
     if (decoded.kind === 'data') {
       const info = this.channels.get(decoded.channelId);
-      this.time.enqueue({
+      const msg: RoutedMessage = {
         channelId: decoded.channelId,
         channelName: info?.name ?? String(decoded.channelId),
         timestamp: decoded.timestamp,
         data: decoded.data,
         binary: decoded.binary,
-      });
+      };
+      if (info?.latched) this.latchedLast.set(info.name, msg);
+      this.time.enqueue(msg);
       return;
     }
 
@@ -353,6 +378,7 @@ export class HubClient {
     if (id !== undefined) {
       this.channels.delete(id);
       this.nameToId.delete(msg.channel_name);
+      this.latchedLast.delete(msg.channel_name);
       this.bindSub(msg.channel_name); // tears down the now-stale registration
       this.emitChannelList();
     }

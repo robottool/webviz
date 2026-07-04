@@ -131,9 +131,11 @@ def main() -> None:
     args = ap.parse_args()
 
     source = Client(f"{args.url}?role=source&id=robot_demo")
-    model_ch = source.advertise("robot_description", "wv/RobotModel")
+    # Model + static base TF are one-shot data: latched, so the hub replays
+    # them to viewers that connect later (no periodic re-publish needed).
+    model_ch = source.advertise("robot_description", "wv/RobotModel", latched=True)
     joints_ch = source.advertise("joint_states", "wv/JointState")
-    tf_ch = source.advertise("transforms", "wv/Transform")
+    tf_ch = source.advertise("transforms", "wv/Transform", latched=True)
 
     controller = RobotController(UR_JOINTS, args.max_vel)
     consumer = Consumer(f"{args.url}?role=client")
@@ -145,16 +147,12 @@ def main() -> None:
         "frame=base_link, then Jog → drag → Send to robot. Ctrl+C to stop."
     )
     period = 1.0 / args.rate
-    last_model = 0.0
+    # Publish the one-shot data once; the hub's latched cache replays it to
+    # every late-joining client.
+    model_ch.send(robot_model(args.urdf_url))
+    tf_ch.send(base_transform())
     try:
         while True:
-            now = time.time()
-            # Re-advertise the model + static base once a second so late clients
-            # still get them (the hub fans out live frames, doesn't latch).
-            if now - last_model > 1.0:
-                model_ch.send(robot_model(args.urdf_url))
-                tf_ch.send(base_transform())
-                last_model = now
             joints_ch.send(controller.step(period))
             time.sleep(period)
     except KeyboardInterrupt:

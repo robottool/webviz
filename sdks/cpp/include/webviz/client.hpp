@@ -120,6 +120,13 @@ class Value {
     for (const auto& kv : obj) obj_.emplace_back(kv.first, kv.second);
   }
 
+  // Append a key to an object value (for keys that are only sometimes present).
+  // No-op on non-objects; does not de-duplicate keys.
+  Value& set(const char* key, Value v) {
+    if (type_ == Type::Object) obj_.emplace_back(key, std::move(v));
+    return *this;
+  }
+
   // Array factory (use webviz::arr(...) below).
   static Value array(std::initializer_list<Value> items) {
     Value v;
@@ -317,18 +324,22 @@ class Client {
   Client(const Client&) = delete;
   Client& operator=(const Client&) = delete;
 
+  // `latched = true` asks the hub to cache the latest frame and replay it to
+  // every new subscriber — use for one-shot data (robot models, static
+  // transforms) so late-joining viewers still see it without a re-publish.
   Channel advertise(const std::string& name, const std::string& schema,
-                    Encoding encoding = Encoding::Json) {
+                    Encoding encoding = Encoding::Json, bool latched = false) {
     uint32_t id;
     {
       std::lock_guard<std::mutex> lk(send_mtx_);
       id = next_id_++;
     }
-    Value adv = {{"op", "advertise"},
-                 {"channel", Value{{"id", static_cast<long long>(id)},
-                                   {"name", name},
-                                   {"schema", schema},
-                                   {"encoding", encoding_str(encoding)}}}};
+    Value ch = {{"id", static_cast<long long>(id)},
+                {"name", name},
+                {"schema", schema},
+                {"encoding", encoding_str(encoding)}};
+    if (latched) ch.set("latched", true);
+    Value adv = {{"op", "advertise"}, {"channel", ch}};
     send_text(adv.dump());
     return Channel(this, id, encoding);
   }

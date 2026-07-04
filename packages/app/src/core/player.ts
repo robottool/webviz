@@ -179,6 +179,7 @@ class Player {
               name: `replay/${c.name}`,
               schema: c.schema,
               encoding: c.encoding,
+              latched: c.latched, // preserve latest-value replay for late panels
             },
           }),
         );
