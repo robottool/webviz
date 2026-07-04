@@ -102,13 +102,19 @@ export function PlotTab({ tabId }: Props) {
     updateSettings(tabId, { plots: nextPlots, windowSec: w });
 
   const addSeries = (plotId: string, channel: string, field: string) =>
+    addSeriesMany(plotId, channel, [field]);
+  // Add several fields of one channel in a single persist — a loop of addSeries
+  // would read the same stale `plots` closure each time, so only the last field
+  // would stick. Used by the field dropdown's "ALL" option.
+  const addSeriesMany = (plotId: string, channel: string, fields: string[]) =>
     persist(
-      plots.map((p) =>
-        p.id === plotId &&
-        !p.series.some((s) => s.channel === channel && s.field === field)
-          ? { ...p, series: [...p.series, { channel, field }] }
-          : p,
-      ),
+      plots.map((p) => {
+        if (p.id !== plotId) return p;
+        const toAdd = fields
+          .filter((f) => !p.series.some((s) => s.channel === channel && s.field === f))
+          .map((f) => ({ channel, field: f }));
+        return toAdd.length ? { ...p, series: [...p.series, ...toAdd] } : p;
+      }),
     );
   const removeSeries = (plotId: string, ser: Series) =>
     persist(
@@ -258,6 +264,7 @@ export function PlotTab({ tabId }: Props) {
             paused={paused}
             canRemovePlot={plots.length > 1}
             onAdd={(c, f) => addSeries(plot.id, c, f)}
+            onAddAll={(c, fs) => addSeriesMany(plot.id, c, fs)}
             onRemoveSeries={(s) => removeSeries(plot.id, s)}
             onRemovePlot={() => removePlot(plot.id)}
             onZoomAt={zoomAt}
@@ -279,6 +286,7 @@ function PlotPanel({
   paused,
   canRemovePlot,
   onAdd,
+  onAddAll,
   onRemoveSeries,
   onRemovePlot,
   onZoomAt,
@@ -293,6 +301,7 @@ function PlotPanel({
   paused: boolean;
   canRemovePlot: boolean;
   onAdd: (channel: string, field: string) => void;
+  onAddAll: (channel: string, fields: string[]) => void;
   onRemoveSeries: (s: Series) => void;
   onRemovePlot: () => void;
   onZoomAt: (fracX: number, factor: number) => void;
@@ -375,7 +384,7 @@ function PlotPanel({
               </span>
             </span>
           ))}
-          <AddSeries channels={channels} onAdd={onAdd} />
+          <AddSeries channels={channels} onAdd={onAdd} onAddAll={onAddAll} />
         </div>
         <span className="spacer" />
         {canRemovePlot && (
@@ -417,12 +426,18 @@ function PlotPanel({
   );
 }
 
+// Sentinel field value for the dropdown's "ALL fields" entry (unlikely to
+// collide with a real field label / joint name).
+const ALL_FIELDS = ' all';
+
 function AddSeries({
   channels,
   onAdd,
+  onAddAll,
 }: {
   channels: { name: string; schema: string }[];
   onAdd: (channel: string, field: string) => void;
+  onAddAll: (channel: string, fields: string[]) => void;
 }) {
   const [channel, setChannel] = useState('');
   const [fields, setFields] = useState<FieldOption[]>([]);
@@ -473,6 +488,7 @@ function AddSeries({
         >
           {loading && <option value="">loading…</option>}
           {!loading && fields.length === 0 && <option value="">no numeric fields</option>}
+          {fields.length > 1 && <option value={ALL_FIELDS}>ALL fields ({fields.length})</option>}
           {fields.map((f) => (
             <option key={f.label} value={f.label}>
               {f.label}
@@ -483,7 +499,15 @@ function AddSeries({
       {channel && field && (
         // Keep the channel selected after adding so several fields from the same
         // channel can be added in quick succession (mode 1).
-        <button onClick={() => onAdd(channel, field)}>Add</button>
+        <button
+          onClick={() =>
+            field === ALL_FIELDS
+              ? onAddAll(channel, fields.map((f) => f.label))
+              : onAdd(channel, field)
+          }
+        >
+          Add
+        </button>
       )}
     </span>
   );
