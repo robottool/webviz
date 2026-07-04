@@ -26,6 +26,11 @@ export const DEMO_BASE_CHANNEL = 'demo/base_frame';
 /** Duration of the interpolated "execute" move. */
 const EXECUTE_MS = 800;
 
+/** Idle publish period (~30 Hz): a real controller streams feedback continuously,
+ * so we re-send the held pose between moves too — otherwise a stationary robot
+ * emits nothing and consumers like the Plot tab see a dead channel. */
+const HEARTBEAT_MS = 33;
+
 /** Smoothstep ease so the arm accelerates in and decelerates out. */
 function easeInOut(t: number): number {
   return t * t * (3 - 2 * t);
@@ -54,6 +59,7 @@ export class DemoExecutor {
   private unsubCmd: (() => void) | null = null;
   private anim: Anim | null = null;
   private raf = 0;
+  private heartbeat = 0;
   /** The last joint config we published (the animation's running value). */
   private current: JointState = { names: [], positions: [] };
   /** Positions of the last goal we acted on, to ignore keepalive re-asserts. */
@@ -85,6 +91,13 @@ export class DemoExecutor {
     });
     this.joints.send(this.current);
     this.listen(commandChannel);
+    // Stream the held pose while idle so the channel stays live between moves.
+    // The animation tick sends at rAF rate, so skip the beat while it runs.
+    if (!this.heartbeat) {
+      this.heartbeat = setInterval(() => {
+        if (!this.anim) this.joints?.send(this.current);
+      }, HEARTBEAT_MS) as unknown as number;
+    }
   }
 
   private listen(channel: string): void {
@@ -136,6 +149,8 @@ export class DemoExecutor {
   dispose(): void {
     this.unsubCmd?.();
     this.unsubCmd = null;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = 0;
     this.stopAnim();
     this.joints?.close();
     this.joints = null;
