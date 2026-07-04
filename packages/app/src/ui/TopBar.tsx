@@ -49,13 +49,14 @@ function SettingsMenu() {
     useSettingsStore();
   const { status, connect } = useConnectionStore();
 
-  // Demo mode replaces the session with an in-app fake robot; if there's real
-  // work to lose (open panels or live hub data), confirm first, then reset the
-  // workspace so nothing conflicts with the demo.
+  // Demo mode replaces the session with an in-app fake robot; toggling it either
+  // way resets the workspace (closes every panel) so nothing conflicts with — or
+  // lingers after — the demo. If there's real work to lose (open panels, or live
+  // hub data when entering), confirm first.
   const toggleDemo = (on: boolean) => {
+    const { tabs, newWorkspace } = useTabStore.getState();
+    const hasPanels = Object.keys(tabs).length > 0;
     if (on) {
-      const { tabs, newWorkspace } = useTabStore.getState();
-      const hasPanels = Object.keys(tabs).length > 0;
       const liveData =
         hubClient.getStatus() === 'connected' && hubClient.getChannels().length > 0;
       if (
@@ -69,8 +70,22 @@ function SettingsMenu() {
         return; // leave demo mode off
       }
       newWorkspace();
+      set({ demoMode: true });
+    } else {
+      if (
+        hasPanels &&
+        !window.confirm(
+          'Turning off demo mode will tear down the demo robot and close the ' +
+            'open panels. Continue?',
+        )
+      ) {
+        return; // leave demo mode on
+      }
+      // Flip the flag first so the demo teardown (stopDemo) runs while the
+      // RobotModel panel is still mounted, then close every panel.
+      set({ demoMode: false });
+      newWorkspace();
     }
-    set({ demoMode: on });
   };
 
   const open = () => {
