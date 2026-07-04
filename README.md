@@ -13,7 +13,7 @@ stack with the bundled demos (see [docs/screenshots/](docs/screenshots) for how 
 
 ### 🧊 3D
 
-<!-- ![3D tab](docs/screenshots/3d.png) -->
+![3D tab jogging a UR arm (Native IK + Send to robot) split over a Plot of all six joint states](docs/screenshots/robot.png)
 
 The main scene view (three.js), laid out as **Displays sidebar · viewport · Properties panel**.
 You add *display plugins*, toggle them, pick the **fixed frame**, and orbit/pan/zoom the camera;
@@ -25,7 +25,7 @@ gizmo. (Deep dive: [`packages/app/src/plugins/README.md`](packages/app/src/plugi
 
 ### 📈 Plot
 
-<!-- ![Plot tab](docs/screenshots/plot.png) -->
+*Pictured in the 3D screenshot above — the bottom pane traces all six joints at once via **ALL fields**.*
 
 Live, scrolling **time-series** organized as stacked subplots — each subplot auto-scales its own
 y-axis while sharing the global time window, so a small signal isn't flattened next to a large one.
@@ -35,7 +35,7 @@ retained history.
 
 ### 🖼️ Image
 
-<!-- ![Image tab](docs/screenshots/image.png) -->
+![Image tab: a 2×2 camera grid with a layout picker (1×1 / 1×2 / 2×2 / 3×2) and a channel selector per cell](docs/screenshots/image.png)
 
 A configurable **camera grid** (1×1 up to 3×2). Each cell binds one `wv/Image` channel and blits
 decoded frames to a canvas — JPEG/PNG and raw RGB8 are all supported, scaled to fit. Async decode
@@ -43,7 +43,7 @@ with frame-skipping, so a fast publisher never backs up the UI.
 
 ### 🗺️ Map
 
-<!-- ![Map tab](docs/screenshots/map.png) -->
+![Map 2D (left) with a discovered occupancy grid, robot, scan and trail; Inspector and Log panes on the right — all fed by map_sim_demo.py](docs/screenshots/map.png)
 
 A 2D top-down (orthographic) view for navigation: a `wv/OccupancyGrid` base map, a `wv/Path`
 trajectory, `wv/LaserScan` points, and a robot heading marker from a TF frame — all resolved into
@@ -52,7 +52,7 @@ watch a map fill in SLAM-style as a robot explores.
 
 ### 🔍 Inspector
 
-<!-- ![Inspector tab](docs/screenshots/inspector.png) -->
+*Pictured in the Map screenshot above — the top-right pane inspects the live `transforms` messages.*
 
 Pick any channel and watch its messages stream live as pretty-printed JSON, with the channel's
 schema and update rate. The quickest way to see exactly what a source is publishing — indispensable
@@ -60,7 +60,7 @@ when wiring up a new SDK, ROS topic, or demo before you build a richer view for 
 
 ### 📜 Log
 
-<!-- ![Log tab](docs/screenshots/log.png) -->
+*Pictured in the Map screenshot above — the bottom-right pane is the `map_sim_demo.py` nav log stream.*
 
 A single, filtered, auto-scrolling **event stream** aggregating *every* `wv/Log` channel (the way
 the TF tree aggregates every transform channel). Filter by level (DEBUG/INFO/WARN/ERROR) and by
