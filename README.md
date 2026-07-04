@@ -11,14 +11,6 @@ remove, maximize to focus (there's no tab bar; "switch between whole setups" is
 hub connection, one TF tree, and one clock. Screenshots below are captured against the local
 stack with the bundled demos (see [docs/screenshots/](docs/screenshots) for how to reproduce them).
 
-### 🔍 Inspector
-
-<!-- ![Inspector tab](docs/screenshots/inspector.png) -->
-
-Pick any channel and watch its messages stream live as pretty-printed JSON, with the channel's
-schema and update rate. The quickest way to see exactly what a source is publishing — indispensable
-when wiring up a new SDK, ROS topic, or demo before you build a richer view for it.
-
 ### 🧊 3D
 
 <!-- ![3D tab](docs/screenshots/3d.png) -->
@@ -31,14 +23,6 @@ GitHub URL, the bundled demo, or a `wv/RobotModel` channel — driven live by `w
 **LaserScan**, **OccupancyGrid**, **Path**, **Pose**, and the interactive **CoordinateFrame**
 gizmo. (Deep dive: [`packages/app/src/plugins/README.md`](packages/app/src/plugins/README.md).)
 
-### 🖼️ Image
-
-<!-- ![Image tab](docs/screenshots/image.png) -->
-
-A configurable **camera grid** (1×1 up to 3×2). Each cell binds one `wv/Image` channel and blits
-decoded frames to a canvas — JPEG/PNG and raw RGB8 are all supported, scaled to fit. Async decode
-with frame-skipping, so a fast publisher never backs up the UI.
-
 ### 📈 Plot
 
 <!-- ![Plot tab](docs/screenshots/plot.png) -->
@@ -49,6 +33,14 @@ Pick a channel and a numeric field (or **ALL fields** to add every field at once
 of a `wv/JointState`). **Pause** freezes the time axis and lets you scroll/zoom back through the
 retained history.
 
+### 🖼️ Image
+
+<!-- ![Image tab](docs/screenshots/image.png) -->
+
+A configurable **camera grid** (1×1 up to 3×2). Each cell binds one `wv/Image` channel and blits
+decoded frames to a canvas — JPEG/PNG and raw RGB8 are all supported, scaled to fit. Async decode
+with frame-skipping, so a fast publisher never backs up the UI.
+
 ### 🗺️ Map
 
 <!-- ![Map tab](docs/screenshots/map.png) -->
@@ -57,6 +49,14 @@ A 2D top-down (orthographic) view for navigation: a `wv/OccupancyGrid` base map,
 trajectory, `wv/LaserScan` points, and a robot heading marker from a TF frame — all resolved into
 the shared fixed frame. Wheel to zoom about the cursor, drag to pan, **⤢ Fit** to frame the map;
 watch a map fill in SLAM-style as a robot explores.
+
+### 🔍 Inspector
+
+<!-- ![Inspector tab](docs/screenshots/inspector.png) -->
+
+Pick any channel and watch its messages stream live as pretty-printed JSON, with the channel's
+schema and update rate. The quickest way to see exactly what a source is publishing — indispensable
+when wiring up a new SDK, ROS topic, or demo before you build a richer view for it.
 
 ### 📜 Log
 
