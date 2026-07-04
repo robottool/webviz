@@ -41,6 +41,70 @@ protocol, a broker hub, and Python / ROS 2 / C++ SDKs:
 | `sdks/ros2` | Drop-in `ament_python` ROS 2 adapter: auto-discovers topics whose type WebViz understands and republishes them as `wv/*` channels — no robot-code changes |
 | `sdks/cpp` | Header-only, dependency-free C++ source client (own minimal RFC 6455 over raw TCP; zero-copy binary framing via `writev`) + CMake examples and a byte-layout test |
 
+## Visualization tools
+
+The workspace is a tiling grid of independent **panels** — split a pane to add one, close to
+remove, maximize to focus (there's no tab bar; "switch between whole setups" is
+[named layouts](#quick-start), not tabs). Every panel is one of six tools, and they share one
+hub connection, one TF tree, and one clock. Screenshots below are captured against the local
+stack with the bundled demos (see [docs/screenshots/](docs/screenshots) for how to reproduce them).
+
+### 🔍 Inspector
+
+<!-- ![Inspector tab](docs/screenshots/inspector.png) -->
+
+Pick any channel and watch its messages stream live as pretty-printed JSON, with the channel's
+schema and update rate. The quickest way to see exactly what a source is publishing — indispensable
+when wiring up a new SDK, ROS topic, or demo before you build a richer view for it.
+
+### 🧊 3D
+
+<!-- ![3D tab](docs/screenshots/3d.png) -->
+
+The main scene view (three.js), laid out as **Displays sidebar · viewport · Properties panel**.
+You add *display plugins*, toggle them, pick the **fixed frame**, and orbit/pan/zoom the camera;
+all displays anchor to the shared TF tree. The catalogue: **RobotModel** (URDF from a folder, a
+GitHub URL, the bundled demo, or a `wv/RobotModel` channel — driven live by `wv/JointState`, with
+**Jog mode** + drag-the-TCP IK), **TFFrames**, **Marker**, **PointCloud** (WebWorker-decoded),
+**LaserScan**, **OccupancyGrid**, **Path**, **Pose**, and the interactive **CoordinateFrame**
+gizmo. (Deep dive: [`packages/app/src/plugins/README.md`](packages/app/src/plugins/README.md).)
+
+### 🖼️ Image
+
+<!-- ![Image tab](docs/screenshots/image.png) -->
+
+A configurable **camera grid** (1×1 up to 3×2). Each cell binds one `wv/Image` channel and blits
+decoded frames to a canvas — JPEG/PNG and raw RGB8 are all supported, scaled to fit. Async decode
+with frame-skipping, so a fast publisher never backs up the UI.
+
+### 📈 Plot
+
+<!-- ![Plot tab](docs/screenshots/plot.png) -->
+
+Live, scrolling **time-series** organized as stacked subplots — each subplot auto-scales its own
+y-axis while sharing the global time window, so a small signal isn't flattened next to a large one.
+Pick a channel and a numeric field (or **ALL fields** to add every field at once, e.g. all joints
+of a `wv/JointState`). **Pause** freezes the time axis and lets you scroll/zoom back through the
+retained history.
+
+### 🗺️ Map
+
+<!-- ![Map tab](docs/screenshots/map.png) -->
+
+A 2D top-down (orthographic) view for navigation: a `wv/OccupancyGrid` base map, a `wv/Path`
+trajectory, `wv/LaserScan` points, and a robot heading marker from a TF frame — all resolved into
+the shared fixed frame. Wheel to zoom about the cursor, drag to pan, **⤢ Fit** to frame the map;
+watch a map fill in SLAM-style as a robot explores.
+
+### 📜 Log
+
+<!-- ![Log tab](docs/screenshots/log.png) -->
+
+A single, filtered, auto-scrolling **event stream** aggregating *every* `wv/Log` channel (the way
+the TF tree aggregates every transform channel). Filter by level (DEBUG/INFO/WARN/ERROR) and by
+free-text search on name + message; **Pause** freezes the view while logs keep buffering. Rows are
+colour-coded by severity.
+
 ## Quick start
 
 First-time setup on Linux — installs the toolchain (Node ≥ 22 via nvm if missing, pnpm,
