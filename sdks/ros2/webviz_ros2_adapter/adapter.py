@@ -162,7 +162,14 @@ class WebVizAdapter(Node):
         except (ImportError, AttributeError) as exc:
             self.get_logger().warn(f"skip {topic}: cannot import {ros_type}: {exc}")
             return
-        chan = self._client.advertise(channel_name(topic), entry.schema, entry.encoding)
+        # Transient-local ROS topics (/tf_static) are latched on the wv side too,
+        # so a viewer that connects later still gets the one static transform.
+        chan = self._client.advertise(
+            channel_name(topic),
+            entry.schema,
+            entry.encoding,
+            latched=topic.endswith("/tf_static"),
+        )
         self._bridged[topic] = chan
         self.create_subscription(
             msg_cls,

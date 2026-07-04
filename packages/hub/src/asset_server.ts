@@ -96,6 +96,7 @@ export function createAssetServer(opts: AssetServerOptions): http.Server {
           data?: unknown;
           source_id?: string;
           timestamp?: number;
+          latched?: boolean;
         };
         if (!body.channel || !body.schema) {
           return json(res, 400, { error: 'channel and schema required' });
@@ -106,6 +107,7 @@ export function createAssetServer(opts: AssetServerOptions): http.Server {
           body.schema,
           body.timestamp ?? Date.now() / 1000,
           body.data ?? {},
+          body.latched ?? false,
         );
         return json(res, 200, { injected: true });
       }

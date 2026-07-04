@@ -63,22 +63,24 @@ class Client:
         self._lock = threading.Lock()
 
     def advertise(
-        self, name: str, schema: str, encoding: str = "json"
+        self, name: str, schema: str, encoding: str = "json", latched: bool = False
     ) -> Channel:
+        """Advertise a channel. `latched=True` asks the hub to cache the latest
+        frame and replay it to every new subscriber — use for one-shot data
+        (robot models, static transforms, static maps) so late-joining viewers
+        still see it without a periodic re-publish."""
         with self._lock:
             channel_id = self._next_id
             self._next_id += 1
-        self._send_json(
-            {
-                "op": "advertise",
-                "channel": {
-                    "id": channel_id,
-                    "name": name,
-                    "schema": schema,
-                    "encoding": encoding,
-                },
-            }
-        )
+        channel: dict[str, Any] = {
+            "id": channel_id,
+            "name": name,
+            "schema": schema,
+            "encoding": encoding,
+        }
+        if latched:
+            channel["latched"] = True
+        self._send_json({"op": "advertise", "channel": channel})
         return Channel(self, channel_id, encoding)
 
     def _send_json(self, msg: dict[str, Any]) -> None:

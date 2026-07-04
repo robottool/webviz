@@ -24,6 +24,11 @@ type Role = 'source' | 'client';
 interface Subscription {
   maxHz?: number;
   lastSentMs: number;
+  /** Newest frame dropped by the `max_hz` throttle, if any. Flushed by `timer`
+   * when the interval expires (trailing edge), so a throttled channel settles
+   * on its final value instead of freezing on a stale one. */
+  pending?: string | Buffer;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface Conn {
@@ -37,10 +42,18 @@ interface Conn {
 
 const BINARY_CHANNEL_OFFSET = 4; // uint32 channel_id position in the frame header
 
+/** Backpressure high-water mark: when a client socket has this much unsent
+ * data queued, further *data* frames to it are dropped (latest-wins) instead of
+ * buffering without bound. Control messages are never dropped. */
+const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
 export class Broker {
   readonly registry = new ChannelRegistry();
   private conns = new Map<string, Conn>();
   private wss: WebSocketServer;
+  /** Latest frame per *latched* channel (global id), already in wire form with
+   * the global channel id — replayed to every new subscriber (§4.2 latched). */
+  private latchedCache = new Map<number, string | Buffer>();
 
   constructor(opts: { server?: import('node:http').Server; port?: number }) {
     this.wss = opts.server
@@ -135,7 +148,7 @@ export class Broker {
     conn: Conn,
     msg: Advertise & { channel: { id?: number } },
   ) {
-    const { name, schema, encoding } = msg.channel;
+    const { name, schema, encoding, latched } = msg.channel;
     const localId = msg.channel.id ?? this.nextLocalId(conn);
     const { channel, renamed } = this.registry.advertise(
       conn.id,
@@ -144,6 +157,7 @@ export class Broker {
       name,
       schema,
       encoding ?? 'json',
+      latched ?? false,
     );
     for (const r of renamed) this.broadcastAdvertise(r);
     this.broadcastAdvertise(channel);
@@ -158,7 +172,10 @@ export class Broker {
 
   private onUnadvertise(conn: Conn, msg: Unadvertise) {
     const removed = this.registry.unadvertise(conn.id, msg.channel_name);
-    if (removed) this.broadcastUnadvertise(removed.name);
+    if (removed) {
+      this.latchedCache.delete(removed.id);
+      this.broadcastUnadvertise(removed.name);
+    }
   }
 
   private onJsonData(conn: Conn, msg: MessageFrame) {
@@ -170,6 +187,7 @@ export class Broker {
       timestamp: msg.timestamp,
       data: msg.data,
     } satisfies MessageFrame);
+    if (entry.latched) this.latchedCache.set(entry.id, out);
     this.fanout(entry.id, msg.timestamp, () => out);
   }
 
@@ -184,6 +202,8 @@ export class Broker {
     if (!entry) return;
     // Rewrite the channel id in the header to the global id, then relay raw.
     buf.writeUInt32LE(entry.id, BINARY_CHANNEL_OFFSET);
+    // Copy for the cache: `buf` may be a view into ws's reusable receive buffer.
+    if (entry.latched) this.latchedCache.set(entry.id, Buffer.from(buf));
     this.fanout(entry.id, header.timestamp, () => buf);
   }
 
@@ -196,6 +216,7 @@ export class Broker {
     schema: string,
     timestamp: number,
     data: unknown,
+    latched = false,
   ) {
     const connId = `http:${sourceId}`;
     const key = `${sourceId}/${name}`;
@@ -208,6 +229,7 @@ export class Broker {
         name,
         schema,
         'json',
+        latched,
       );
       globalId = channel.id;
       this.httpChannels.set(key, globalId);
@@ -219,19 +241,40 @@ export class Broker {
       timestamp,
       data,
     } satisfies MessageFrame);
+    if (this.registry.get(globalId)?.latched) this.latchedCache.set(globalId, out);
     this.fanout(globalId, timestamp, () => out);
   }
 
   // --- client handlers ---
 
   private onSubscribe(conn: Conn, msg: SubscribeRequest) {
+    const now = Date.now();
     for (const c of msg.channels) {
-      conn.subs.set(c.id, { maxHz: c.max_hz, lastSentMs: 0 });
+      // A re-subscribe (e.g. a max_hz change) replaces the entry; drop any
+      // trailing-throttle timer that belonged to the old one.
+      this.clearSub(conn.subs.get(c.id));
+      const sub: Subscription = { maxHz: c.max_hz, lastSentMs: 0 };
+      conn.subs.set(c.id, sub);
+      // Latched channel: replay the cached latest frame so a late joiner sees
+      // one-shot data (static map, robot model) without waiting for a re-publish.
+      const cached = this.latchedCache.get(c.id);
+      if (cached !== undefined) this.trySend(conn, sub, cached, now);
     }
   }
 
   private onUnsubscribe(conn: Conn, msg: UnsubscribeRequest) {
-    for (const c of msg.channels) conn.subs.delete(c.id);
+    for (const c of msg.channels) {
+      this.clearSub(conn.subs.get(c.id));
+      conn.subs.delete(c.id);
+    }
+  }
+
+  private clearSub(sub: Subscription | undefined) {
+    if (sub?.timer) clearTimeout(sub.timer);
+    if (sub) {
+      sub.timer = undefined;
+      sub.pending = undefined;
+    }
   }
 
   // --- fanout ---
@@ -249,14 +292,41 @@ export class Broker {
       }
       const sub = conn.subs.get(channelId);
       if (!sub) continue;
-      if (sub.maxHz && sub.maxHz > 0) {
-        const minIntervalMs = 1000 / sub.maxHz;
-        if (now - sub.lastSentMs < minIntervalMs) continue;
-      }
-      sub.lastSentMs = now;
       cached ??= payload();
-      conn.ws.send(cached);
+      this.deliver(conn, sub, cached, now);
     }
+  }
+
+  /** Send one data frame to one subscription, honoring its `max_hz` throttle.
+   * A frame arriving inside the throttle interval is parked (latest-wins) and
+   * flushed by a trailing-edge timer, so the channel's *final* value always
+   * reaches the client. */
+  private deliver(conn: Conn, sub: Subscription, frame: string | Buffer, now: number) {
+    if (sub.maxHz && sub.maxHz > 0) {
+      const wait = sub.lastSentMs + 1000 / sub.maxHz - now;
+      if (wait > 0) {
+        sub.pending = frame;
+        sub.timer ??= setTimeout(() => {
+          sub.timer = undefined;
+          const p = sub.pending;
+          sub.pending = undefined;
+          if (p !== undefined && conn.ws.readyState === WebSocket.OPEN) {
+            this.trySend(conn, sub, p, Date.now());
+          }
+        }, wait);
+        return;
+      }
+    }
+    this.trySend(conn, sub, frame, now);
+  }
+
+  /** Actually write to the socket — unless the client is backed up, in which
+   * case the frame is dropped (a live viewer wants latest-wins, not a growing
+   * queue of stale frames). */
+  private trySend(conn: Conn, sub: Subscription, frame: string | Buffer, now: number) {
+    if (conn.ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+    sub.lastSentMs = now;
+    conn.ws.send(frame);
   }
 
   // --- broadcast control to all clients ---
@@ -269,6 +339,7 @@ export class Broker {
         name: channel.name,
         schema: channel.schema,
         encoding: channel.encoding,
+        latched: channel.latched,
       } as Advertise['channel'] & { id: number },
     };
     this.broadcastToClients(JSON.stringify(msg));
@@ -291,9 +362,13 @@ export class Broker {
     if (!this.conns.has(conn.id)) return;
     this.conns.delete(conn.id);
     this.localIdCounters.delete(conn.id);
+    for (const sub of conn.subs.values()) this.clearSub(sub);
     if (conn.role === 'source') {
       const removed = this.registry.removeBySource(conn.id);
-      for (const r of removed) this.broadcastUnadvertise(r.name);
+      for (const r of removed) {
+        this.latchedCache.delete(r.id);
+        this.broadcastUnadvertise(r.name);
+      }
     }
   }
 }

@@ -13,6 +13,10 @@ export interface ChannelInfo {
   encoding: Encoding;
   /** Optional source id, present when the hub multiplexes >1 source. */
   source_id?: string;
+  /** Latched (latest-value) channel: the hub caches the most recent frame and
+   * replays it to every new subscriber, so late joiners see one-shot data
+   * (static maps, /tf_static, robot models) without a re-publish. */
+  latched?: boolean;
 }
 
 /** Sent by the hub to a freshly connected client. */
@@ -30,6 +34,8 @@ export interface Advertise {
     name: string;
     schema: SchemaName | string;
     encoding?: Encoding;
+    /** Request latest-value caching for this channel (see ChannelInfo.latched). */
+    latched?: boolean;
   };
 }
 

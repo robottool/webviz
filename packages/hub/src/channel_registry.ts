@@ -56,6 +56,7 @@ export class ChannelRegistry {
     name: string,
     schema: string,
     encoding: Encoding,
+    latched = false,
   ): AdvertiseResult {
     const renamed: ChannelEntry[] = [];
 
@@ -85,6 +86,7 @@ export class ChannelRegistry {
       source_id: sourceId,
       ownerConnId,
       localId,
+      latched: latched || undefined,
     };
     this.byGlobalId.set(entry.id, entry);
     this.index(entry);
@@ -131,6 +133,7 @@ export class ChannelRegistry {
       schema: c.schema,
       encoding: c.encoding,
       source_id: c.source_id,
+      latched: c.latched,
     }));
   }
 }
