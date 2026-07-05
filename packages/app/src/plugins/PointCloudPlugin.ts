@@ -76,11 +76,16 @@ export class PointCloudPlugin implements DisplayPlugin {
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
+      // Points are unlit; keep the viridis/intensity colours exact under the
+      // studio theme's ACES tone mapping (which would otherwise desaturate them).
+      toneMapped: false,
     });
     this.rgbMaterial = new THREE.PointsMaterial({
       size: this.settings.point_size,
       sizeAttenuation: false,
       vertexColors: true,
+      // Preserve raw RGB point colours regardless of scene tone mapping.
+      toneMapped: false,
     });
   }
 

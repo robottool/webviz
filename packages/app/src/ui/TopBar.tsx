@@ -134,6 +134,7 @@ function SettingsMenu() {
                   <option value="minimal">Clean minimal</option>
                   <option value="vibrant">Vibrant</option>
                   <option value="industry">Industry (light)</option>
+                  <option value="studio">Studio (shadows)</option>
                 </select>
               </label>
               <label className="settings-row">

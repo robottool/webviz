@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { AXIS_COLORS } from './axisColors.js';
 
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -32,6 +33,15 @@ function cssColor(name: string, fallback: number): THREE.Color {
   return v ? new THREE.Color(v) : new THREE.Color(fallback);
 }
 
+/** Read a raw CSS custom property string (empty when unset / off-DOM). Used for
+ * the `--viewport-shadows` theme flag that gates the shadow + PBR rig. */
+function cssVar(name: string): string {
+  if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') {
+    return '';
+  }
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 export class SceneManager {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -45,6 +55,17 @@ export class SceneManager {
   private axes: THREE.AxesHelper;
   private objects = new Map<string, THREE.Object3D>();
   private renderCallbacks = new Set<(dt: number) => void>();
+
+  // Lighting rig. The base (ambient + key directional) is always present; the
+  // `studio` theme additionally enables shadow casting, a hemisphere fill, a
+  // shadow-catcher ground plane, an env map, and ACES tone mapping — all toggled
+  // by applyViewportStyle() off the `--viewport-shadows` CSS flag.
+  private ambient: THREE.AmbientLight;
+  private keyLight: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
+  private shadowGround: THREE.Mesh;
+  private env?: THREE.Texture;
+  private studioOn = false;
 
   private container: HTMLElement;
   private resizeObserver: ResizeObserver;
@@ -110,10 +131,38 @@ export class SceneManager {
 
     this.scene.add(this.root);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-    dir.position.set(5, -5, 10);
-    this.scene.add(ambient, dir);
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.8);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    // A moderately raking angle (~40° elevation) so the studio shadow extends to
+    // the side and reads clearly, rather than hiding straight under the robot.
+    this.keyLight.position.set(6, -5, 6);
+    // Shadow-camera frustum sized for a robot-scale scene (metres). Only used
+    // when studio mode flips castShadow on; harmless otherwise.
+    this.keyLight.shadow.mapSize.set(2048, 2048);
+    this.keyLight.shadow.camera.near = 0.1;
+    this.keyLight.shadow.camera.far = 60;
+    this.keyLight.shadow.camera.left = -12;
+    this.keyLight.shadow.camera.right = 12;
+    this.keyLight.shadow.camera.top = 12;
+    this.keyLight.shadow.camera.bottom = -12;
+    this.keyLight.shadow.bias = -0.0002;
+    this.keyLight.shadow.normalBias = 0.02;
+    // Sky/ground hemisphere fill — only visible in studio mode.
+    this.hemi = new THREE.HemisphereLight(0xbcd0ff, 0x2a2620, 0.6);
+    this.scene.add(this.ambient, this.keyLight, this.hemi);
+
+    // Transparent shadow-catcher on the z=0 plane: ShadowMaterial renders *only*
+    // where shadows fall, so it grounds the robot without hiding the grid or any
+    // map/point-cloud data drawn at/below z=0 (unlike an opaque floor). PlaneGeo
+    // lies in XY with a +Z normal, matching the +Z-up world.
+    this.shadowGround = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.ShadowMaterial({ opacity: 0.42 }),
+    );
+    this.shadowGround.receiveShadow = true;
+    this.scene.add(this.shadowGround);
+
+    this.applyViewportStyle();
 
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(container);
@@ -133,7 +182,84 @@ export class SceneManager {
       cssColor('--grid-minor', 0x232a33),
     );
     grid.rotation.x = Math.PI / 2;
+    // The grid colours come straight from the theme; keep ACES tone mapping (on
+    // in studio mode) from shifting them.
+    (grid.material as THREE.Material).toneMapped = false;
     return grid;
+  }
+
+  /** Read the `--viewport-shadows` theme flag and switch the renderer between the
+   * flat base rig and the studio shadow + PBR rig. Idempotent; called from the
+   * constructor and on every theme change. */
+  private applyViewportStyle(): void {
+    const studio = cssVar('--viewport-shadows') === '1';
+    this.studioOn = studio;
+
+    this.renderer.shadowMap.enabled = studio;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.keyLight.castShadow = studio;
+    this.hemi.visible = studio;
+    this.shadowGround.visible = studio;
+
+    // Re-flag every already-loaded object's meshes (switching *into* studio after
+    // a robot has streamed in is the common case). The render loop also re-flags
+    // on dirty frames while studio is on, so async URDF meshes arriving later get
+    // castShadow too.
+    for (const obj of this.objects.values()) this.applyShadowFlags(obj);
+
+    // Balance the fill: studio leans on the key light + shadows, so drop the flat
+    // ambient (which would wash the shadows out) and brighten the key.
+    this.ambient.intensity = studio ? 0.32 : 0.8;
+    this.keyLight.intensity = studio ? 1.15 : 0.6;
+
+    this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.scene.environment = studio ? this.getEnvironment() : null;
+
+    // Toggling shadowMap.enabled / tone mapping changes the shader defines, so
+    // force affected materials to recompile once.
+    this.scene.traverse((n) => {
+      const m = (n as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true));
+      else if (m) m.needsUpdate = true;
+    });
+    this.requestRender();
+  }
+
+  /** Lazily build a RoomEnvironment PMREM for soft image-based lighting (studio
+   * mode only). Cached; disposed in dispose(). */
+  private getEnvironment(): THREE.Texture {
+    if (!this.env) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      pmrem.dispose();
+    }
+    return this.env;
+  }
+
+  /** Flag shadow casting/receiving on a plugin object's meshes. Opaque meshes
+   * cast (a translucent jog ghost / gizmo would drop a solid, misleading shadow —
+   * those are skipped via `userData.noShadow`/`noFit` or material transparency);
+   * every mesh receives. Points/Lines are left alone (point shadows are speckle).
+   * Cheap and harmless when studio mode is off. */
+  private applyShadowFlags(obj: THREE.Object3D): void {
+    obj.traverse((n) => {
+      const mesh = n as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      let excluded = false;
+      for (let p: THREE.Object3D | null = mesh; p; p = p.parent) {
+        if (p.userData?.noFit || p.userData?.noShadow) {
+          excluded = true;
+          break;
+        }
+      }
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      const transparent = Array.isArray(mat)
+        ? mat.some((m) => m.transparent)
+        : !!mat?.transparent;
+      mesh.receiveShadow = true;
+      mesh.castShadow = !excluded && !transparent;
+    });
   }
 
   /** Re-read theme colours into the WebGL scene (background + grid). Called by
@@ -149,6 +275,9 @@ export class SceneManager {
     this.grid = this.buildGrid();
     this.grid.visible = visible;
     this.scene.add(this.grid);
+    // The theme may have flipped the --viewport-shadows flag (e.g. into/out of
+    // `studio`), so re-sync the shadow + PBR rig.
+    this.applyViewportStyle();
     this.requestRender();
   }
 
@@ -176,6 +305,7 @@ export class SceneManager {
     this.removeObject(pluginId);
     this.objects.set(pluginId, obj);
     this.root.add(obj);
+    this.applyShadowFlags(obj);
     this.requestRender();
   }
 
@@ -237,6 +367,12 @@ export class SceneManager {
 
     const controlsActive = this.controls.update(); // returns true while damping
     if (this.dirty || controlsActive) {
+      // A dirty frame means content changed (new/updated plugin objects), so in
+      // studio mode re-flag castShadow to catch async-loaded meshes (URDF meshes
+      // stream in after addObject). Cheap: boolean sets over a handful of meshes.
+      if (this.studioOn && this.dirty) {
+        for (const obj of this.objects.values()) this.applyShadowFlags(obj);
+      }
       this.renderer.render(this.scene, this.camera);
       this.dirty = false;
     }
@@ -378,6 +514,9 @@ export class SceneManager {
     this.resizeObserver.disconnect();
     for (const id of [...this.objects.keys()]) this.removeObject(id);
     this.controls.dispose();
+    this.env?.dispose();
+    (this.shadowGround.material as THREE.Material).dispose();
+    this.shadowGround.geometry.dispose();
     this.renderer.dispose();
     // dispose() frees three's GPU resources but not the underlying WebGL
     // context; forceContextLoss() actually releases it, so per-tab renderers

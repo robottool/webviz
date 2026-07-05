@@ -141,6 +141,44 @@
   --c-log: #b07a16;
 }
 
+/* Theme: studio — a dark, photographic look whose 3D viewport switches on
+   real-time shadows + PBR lighting (SceneManager reads --viewport-shadows). The
+   chrome is a warm graphite so the shaded viewport reads as the focal point; the
+   viewport bg is a soft graphite the ShadowMaterial ground catches shadows on. */
+[data-theme='studio'] {
+  --bg: #14161a;
+  --bg-2: #1c1f25;
+  --bg-3: #262a31;
+  --border: #333944;
+  --text: #e6e9ee;
+  --text-dim: #9aa3b0;
+  --accent: #f0a03c; /* warm "studio light" amber */
+  --accent-2: #ffca6b;
+  --accent-ink: #1a1204;
+  --green: #4ade80;
+  --red: #fb7185;
+  --yellow: #fbbf24;
+  --app-bg: radial-gradient(140% 130% at 50% -10%, #20242b 0%, #0c0e12 68%);
+  --surface-hi: rgba(255, 255, 255, 0.05);
+  --glow-accent: 0 0 12px -3px var(--accent);
+  --glow-live: 0 0 8px var(--green);
+  --accent-fill: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --scroll-thumb: #333944;
+  --scroll-thumb-hover: #454d5b;
+  /* Graphite floor/horizon the contact shadows land on. */
+  --viewport-bg: #30343b;
+  --grid-major: #454b54;
+  --grid-minor: #3a3f47;
+  /* Flag read by core/SceneManager.ts: "1" turns on the shadow + PBR rig. */
+  --viewport-shadows: 1;
+  --c-3d: #f0a03c;
+  --c-image: #c084fc;
+  --c-plot: #4ade80;
+  --c-map: #2dd4bf;
+  --c-inspector: #9aa3b0;
+  --c-log: #fbbf24;
+}
+
 * {
   box-sizing: border-box;
 }

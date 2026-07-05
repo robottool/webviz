@@ -741,6 +741,9 @@ export class RobotModelPlugin implements DisplayPlugin {
       };
       mesh.material = Array.isArray(mat) ? mat.map(fade) : fade(mat);
     });
+    // The ghost is a translucent preview, not real geometry — keep it from
+    // casting a (solid, misleading) shadow in the studio theme's shadow rig.
+    shadow.userData.noShadow = true;
     this.jogShadow = shadow;
     this.ctx.scene.addObject(this.jogId, shadow);
     this.ik = new RobotIkController(

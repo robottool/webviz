@@ -16,8 +16,10 @@ import { create } from 'zustand';
 import { hubClient } from '../protocol/HubClient.js';
 import { recorder } from '../core/recorder.js';
 
-/** Visual themes. `industry` (light) is the default; styles.css holds the palettes. */
-export type ThemeId = 'telemetry' | 'minimal' | 'vibrant' | 'industry';
+/** Visual themes. `industry` (light) is the default; styles.css holds the palettes.
+ * `studio` is a dark theme whose 3D viewport turns on shadows + PBR lighting
+ * (gated by the `--viewport-shadows` CSS flag, read by core/SceneManager.ts). */
+export type ThemeId = 'telemetry' | 'minimal' | 'vibrant' | 'industry' | 'studio';
 
 /** Display units (values are stored/sent in SI — rad + m — and only converted
  * for display; e.g. the RobotModel joint sliders + TCP nudge). */
