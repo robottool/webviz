@@ -1,8 +1,10 @@
-# Build + typecheck + test on every push/PR. Two independent jobs:
-#   js  — the pnpm workspace (protocol must build before hub/app typecheck,
-#         since they import its dist/ via workspace:*)
-#   cpp — the header-only C++ SDK (test_payloads.cpp guards the cross-language
-#         binary payload contract against binary.ts)
+# Build + typecheck + test on every push/PR. Three independent jobs:
+#   js     — the pnpm workspace (protocol must build before hub/app typecheck,
+#            since they import its dist/ via workspace:*)
+#   cpp    — the header-only C++ SDK
+#   python — SDK/demo/ROS-converter payload tests
+# cpp and python both assert the golden fixtures in packages/protocol/fixtures
+# (the cross-language binary payload contract, pinned by the protocol vitest).
 name: CI
 
 on:
@@ -41,3 +43,16 @@ jobs:
       - run: cmake -S sdks/cpp -B build
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
+
+  # Golden-bytes payload tests for the Python copies of the wire layouts
+  # (SDK header packing, demo payload builders, ROS adapter converters).
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Importing the demos pulls in webviz.client, which needs websockets.
+      - run: pip install 'websockets>=11'
+      - run: python -m unittest discover -s sdks/python/tests -v

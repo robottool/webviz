@@ -5,12 +5,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "webviz/client.hpp"
 
 static int failures = 0;
+
+// Golden fixture files (packages/protocol/fixtures) — the checked-in bytes of
+// the cross-language contract, shared with the protocol vitest and the Python
+// payload tests. WEBVIZ_FIXTURES_DIR is injected by CMake.
+static std::vector<uint8_t> read_fixture(const std::string& name) {
+  std::ifstream f(std::string(WEBVIZ_FIXTURES_DIR) + "/" + name, std::ios::binary);
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+}
 
 static void expect_bytes(const char* what, const std::vector<uint8_t>& got,
                          const std::vector<uint8_t>& want) {
@@ -84,6 +94,36 @@ int main() {
   expect_eq("stride +rgb", point_stride(PC_FLAG_RGB), 6);
   expect_eq("stride +normal", point_stride(PC_FLAG_NORMAL), 6);
   expect_eq("stride +intensity+rgb", point_stride(PC_FLAG_INTENSITY | PC_FLAG_RGB), 7);
+
+  // --- golden fixtures: full frames must match the checked-in bytes ---
+  // (canonical inputs documented in packages/protocol/fixtures/README.md)
+
+  // wv/Image frame: channel 7, t=1.5, "cam" 2×1 RGB8, data [10..60].
+  {
+    auto want = read_fixture("image_frame.bin");
+    expect_eq("image fixture readable", static_cast<long>(want.size()), 45);
+    auto payload = image_payload_prefix("cam", 2, 1, ImageFormat::RGB8);
+    const uint8_t px[] = {10, 20, 30, 40, 50, 60};
+    payload.insert(payload.end(), px, px + sizeof(px));
+    std::vector<uint8_t> got;
+    append_binary_header(got, 7, 1.5, static_cast<uint32_t>(payload.size()));
+    got.insert(got.end(), payload.begin(), payload.end());
+    expect_bytes("golden image frame", got, want);
+  }
+
+  // wv/PointCloud frame: channel 9, t=2.25, "odom" 2 pts xyz+intensity.
+  {
+    auto want = read_fixture("pointcloud_frame.bin");
+    expect_eq("pointcloud fixture readable", static_cast<long>(want.size()), 65);
+    auto payload = pointcloud_payload_prefix("odom", 2, PC_FLAG_INTENSITY);
+    const float pts[] = {1, 2, 3, 0.5f, -1, -2, -3, 1};
+    const uint8_t* pb = reinterpret_cast<const uint8_t*>(pts);
+    payload.insert(payload.end(), pb, pb + sizeof(pts));
+    std::vector<uint8_t> got;
+    append_binary_header(got, 9, 2.25, static_cast<uint32_t>(payload.size()));
+    got.insert(got.end(), payload.begin(), payload.end());
+    expect_bytes("golden pointcloud frame", got, want);
+  }
 
   // JSON serialization of a wv/Transform-shaped object (arrays via webviz::arr).
   {

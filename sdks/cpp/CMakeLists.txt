@@ -38,4 +38,8 @@ target_link_libraries(pointcloud_demo PRIVATE webviz_client)
 enable_testing()
 add_executable(test_payloads test/test_payloads.cpp)
 target_link_libraries(test_payloads PRIVATE webviz_client)
+# Golden fixtures: the checked-in cross-language contract bytes (shared with
+# the protocol vitest and the Python payload tests).
+target_compile_definitions(test_payloads PRIVATE
+  WEBVIZ_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../packages/protocol/fixtures")
 add_test(NAME payloads COMMAND test_payloads)
