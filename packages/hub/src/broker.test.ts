@@ -17,11 +17,11 @@ interface Ctx {
   close(): Promise<void>;
 }
 
-async function startBroker(): Promise<Ctx> {
+async function startBroker(allowedOrigins?: string): Promise<Ctx> {
   const server = http.createServer();
   await new Promise<void>((r) => server.listen(0, r));
   const port = (server.address() as import('node:net').AddressInfo).port;
-  const broker = new Broker({ server });
+  const broker = new Broker({ server, allowedOrigins });
   const sockets: WebSocket[] = [];
   return {
     broker,
@@ -45,8 +45,8 @@ interface TestSocket {
   ready: Promise<void>;
 }
 
-function open(ctx: Ctx, query: string): TestSocket {
-  const ws = new WebSocket(`${ctx.url}/?${query}`);
+function open(ctx: Ctx, query: string, origin?: string): TestSocket {
+  const ws = new WebSocket(`${ctx.url}/?${query}`, origin ? { origin } : undefined);
   ctx.sockets.push(ws);
   const got: Record<string, unknown[]> = {};
   ws.on('message', (raw, isBinary) => {
@@ -200,6 +200,37 @@ describe('Broker', () => {
     conn.ws.bufferedAmount = 0;
     broker.trySend(conn, sub, 'frame', Date.now());
     expect(sent).toHaveLength(1); // drained → delivered
+  });
+
+  it('rejects browser origins outside ALLOWED_ORIGINS, admits allowed and origin-less', async () => {
+    ctx = await startBroker('http://good.example:8080, http://also-good.example');
+
+    // Disallowed browser origin → closed with 1008 before any server_info.
+    const evil = open(ctx, 'role=client', 'http://evil.example');
+    const code = await new Promise<number>((resolve) => {
+      evil.ws.on('close', (c) => resolve(c));
+      evil.ws.on('error', () => {}); // socket may error on server-side close
+    });
+    expect(code).toBe(1008);
+    expect(evil.got.server_info ?? []).toHaveLength(0);
+
+    // Allowed browser origin → normal handshake.
+    const good = open(ctx, 'role=client', 'http://good.example:8080');
+    await until(() => good.got.server_info?.[0]);
+
+    // No Origin header (native SDK client) → always admitted.
+    const sdk = open(ctx, 'role=source&id=cpp');
+    await sdk.ready;
+    sdk.ws.send(
+      JSON.stringify({ op: 'advertise', channel: { id: 1, name: 'tf', schema: 'wv/Transform' } }),
+    );
+    await until(() => ctx.broker.registry.list().length === 1);
+  });
+
+  it('admits any origin by default', async () => {
+    ctx = await startBroker(); // no allowedOrigins → '*'
+    const client = open(ctx, 'role=client', 'http://anywhere.example');
+    await until(() => client.got.server_info?.[0]);
   });
 
   it('clears the latched cache when the source disconnects', async () => {

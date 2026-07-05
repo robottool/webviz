@@ -54,8 +54,24 @@ export class Broker {
   /** Latest frame per *latched* channel (global id), already in wire form with
    * the global channel id — replayed to every new subscriber (§4.2 latched). */
   private latchedCache = new Map<number, string | Buffer>();
+  /** Allowed browser origins (comma-separated, '*' = any). Checked against the
+   * Origin header of the WS upgrade: browsers always send it, so this stops a
+   * malicious *website* open in the same browser from driving the hub (the
+   * interactive channels command real robots). Native SDK clients send no
+   * Origin and are always admitted — they aren't subject to that attack, and
+   * could forge any value anyway. */
+  private allowedOrigins: string[] | null; // null = any
 
-  constructor(opts: { server?: import('node:http').Server; port?: number }) {
+  constructor(opts: {
+    server?: import('node:http').Server;
+    port?: number;
+    allowedOrigins?: string;
+  }) {
+    const allowed = opts.allowedOrigins?.trim();
+    this.allowedOrigins =
+      !allowed || allowed === '*'
+        ? null
+        : allowed.split(',').map((o) => o.trim()).filter(Boolean);
     this.wss = opts.server
       ? new WebSocketServer({ server: opts.server })
       : new WebSocketServer({ port: opts.port });
@@ -81,6 +97,11 @@ export class Broker {
   }
 
   private onConnection(ws: WebSocket, req: IncomingMessage) {
+    const origin = req.headers.origin;
+    if (origin && this.allowedOrigins && !this.allowedOrigins.includes(origin)) {
+      ws.close(1008, 'origin not allowed');
+      return;
+    }
     const url = new URL(req.url ?? '/', 'http://localhost');
     const role = (url.searchParams.get('role') as Role) ?? 'client';
     const sourceId = url.searchParams.get('id') ?? role;

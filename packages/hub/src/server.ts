@@ -37,7 +37,9 @@ export function startHub(opts: HubOptions): Promise<RunningHub> {
   const wsPort = opts.wsPort ?? 7777;
   const httpPort = opts.httpPort ?? 8080;
 
-  const broker = new Broker({ port: wsPort });
+  // allowedOrigins guards both the HTTP CORS headers (asset server) and the
+  // WS upgrade handshake (broker) — one env var, both doors.
+  const broker = new Broker({ port: wsPort, allowedOrigins: opts.allowedOrigins });
   const httpServer = createAssetServer({
     broker,
     webDir: opts.webDir,
