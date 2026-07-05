@@ -1,21 +1,28 @@
 /**
- * Recording playback (§16.1). Loads a `.wvrec` produced by `core/recorder.ts`
- * and replays it **as a second hub source**, so replayed channels coexist with
- * a live connection instead of replacing it.
+ * Recording playback (§16.1). Loads an **MCAP** recording produced by
+ * `core/recorder.ts` (or a legacy `.wvrec`) and replays it **as a second hub
+ * source**, so replayed channels coexist with a live connection instead of
+ * replacing it.
  *
  * Why replay-as-a-source: the hub multiplexes sources on `:7777` via
  * `?role=source&id=<id>` and remaps each source's *local* channel id to a fresh
- * global id (`channel_registry.ts`). If we advertise each recorded channel using
- * its *original* recorded global id as the local id, the recorded frames replay
- * **byte-for-byte unchanged** — their JSON `channel_id` / binary headers already
- * hold that number, and the hub rewrites them to new global ids on the way out.
- * The browser's live `HubClient` simply sees new `replay/<name>` channels appear.
+ * global id (`channel_registry.ts`). We advertise each recorded channel using
+ * its *original* recorded global id as the local id (preserved in MCAP channel
+ * metadata `wv_channel_id`), rebuild each message's wire frame around that id
+ * (JSON envelope / 20-byte binary header via the protocol encoders), and the
+ * hub rewrites them to new global ids on the way out. The browser's live
+ * `HubClient` simply sees new `replay/<name>` channels appear.
  *
- * Transport is driven by a rAF clock advanced by `realΔ × speed`; due records are
- * flushed to the source socket in file (timestamp) order.
+ * The playback time axis is MCAP `logTime` (capture arrival time, normalized to
+ * the first message) — so replay pacing preserves the recorded spacing; each
+ * frame's own source timestamp is rebuilt from `publishTime`.
+ *
+ * Transport is driven by a rAF clock advanced by `realΔ × speed`; due records
+ * are flushed to the source socket in file (timestamp) order.
  */
 
-import type { ChannelInfo, Encoding } from '@webviz/protocol';
+import { McapStreamReader } from '@mcap/core';
+import { encodeBinaryFrame, type ChannelInfo, type Encoding } from '@webviz/protocol';
 import { hubSourceUrl } from './hubUrl.js';
 
 export type PlaybackStatus = 'idle' | 'playing' | 'paused' | 'ended';
@@ -95,6 +102,78 @@ class Player {
   }
 
   private parse(buf: ArrayBuffer): void {
+    // "\x89MCAP0\r\n" — the MCAP magic; anything else falls back to .wvrec.
+    const head = new Uint8Array(buf, 0, Math.min(8, buf.byteLength));
+    const MCAP_MAGIC = [0x89, 0x4d, 0x43, 0x41, 0x50, 0x30, 0x0d, 0x0a];
+    if (head.length === 8 && MCAP_MAGIC.every((b, i) => head[i] === b)) {
+      this.parseMcap(buf);
+    } else {
+      this.parseWvrec(buf);
+    }
+  }
+
+  /** Parse an MCAP recording (see core/recorder.ts for the wv↔MCAP mapping). */
+  private parseMcap(buf: ArrayBuffer): void {
+    const reader = new McapStreamReader({ validateCrcs: false });
+    reader.append(new Uint8Array(buf));
+
+    this.catalogue = new Map();
+    const dec = new TextDecoder();
+    const schemaNames = new Map<number, string>(); // mcap schema id → wv schema
+    // mcap channel id → how to rebuild wire frames for it
+    const chans = new Map<number, { wvId: number; binary: boolean }>();
+    const raw: Array<{ logTime: bigint; text: string | null; bin: Uint8Array | null }> = [];
+
+    for (let rec; (rec = reader.nextRecord()); ) {
+      if (rec.type === 'Schema') {
+        schemaNames.set(rec.id, rec.name);
+      } else if (rec.type === 'Channel') {
+        const wvId = Number(rec.metadata.get('wv_channel_id'));
+        if (!Number.isFinite(wvId)) continue; // not a WebViz recording channel
+        const binary = rec.messageEncoding === 'wv';
+        chans.set(rec.id, { wvId, binary });
+        this.catalogue.set(wvId, {
+          id: wvId,
+          name: rec.topic,
+          schema: schemaNames.get(rec.schemaId) ?? 'wv/Custom',
+          encoding: (rec.metadata.get('wv_encoding') ?? (binary ? 'binary' : 'json')) as Encoding,
+          source_id: rec.metadata.get('wv_source_id'),
+          latched: rec.metadata.get('wv_latched') === 'true' || undefined,
+        });
+      } else if (rec.type === 'Message') {
+        const chan = chans.get(rec.channelId);
+        if (!chan) continue;
+        // Rebuild the frame's own source timestamp from publishTime (ns).
+        const sourceT = Number(rec.publishTime) / 1e9;
+        if (chan.binary) {
+          const frame = encodeBinaryFrame(chan.wvId, sourceT, rec.data);
+          raw.push({ logTime: rec.logTime, text: null, bin: new Uint8Array(frame) });
+        } else {
+          // rec.data is the serialized `data` payload — splice it back into a
+          // wire envelope without a parse/stringify round trip.
+          const text = `{"op":"message","channel_id":${chan.wvId},"timestamp":${sourceT},"data":${dec.decode(rec.data)}}`;
+          raw.push({ logTime: rec.logTime, text, bin: null });
+        }
+      }
+    }
+
+    // Time axis: logTime normalized to the first message (bigint math first —
+    // epoch-scale ns don't survive a Number round trip, small deltas do).
+    let t0 = 0n;
+    for (const r of raw) if (t0 === 0n || r.logTime < t0) t0 = r.logTime;
+    const records: PlayRecord[] = raw.map((r) => ({
+      t: Number(r.logTime - t0) / 1e9,
+      text: r.text,
+      bin: r.bin,
+    }));
+    records.sort((a, b) => a.t - b.t);
+
+    this.records = records;
+    this.duration = records.length ? records[records.length - 1].t : 0;
+  }
+
+  /** Parse the legacy `.wvrec` container (WVR1/WVR2). */
+  private parseWvrec(buf: ArrayBuffer): void {
     const dv = new DataView(buf);
     const dec = new TextDecoder();
     const magic = dec.decode(new Uint8Array(buf, 0, 4));
@@ -110,7 +189,7 @@ class Player {
       for (const c of cat) this.catalogue.set(c.id, c);
       off += catLen;
     } else if (magic !== 'WVR1') {
-      throw new Error(`Not a .wvrec file (bad magic "${magic}")`);
+      throw new Error(`Not an MCAP or .wvrec recording (bad magic "${magic}")`);
     }
 
     const records: PlayRecord[] = [];

@@ -232,7 +232,8 @@ function SettingsMenu() {
   );
 }
 
-/** 📂 — load a `.wvrec` and start replaying it (as a coexisting hub source). */
+/** 📂 — load a recording (.mcap, or legacy .wvrec) and start replaying it (as
+ * a coexisting hub source). */
 function LoadRecordingButton() {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -252,7 +253,7 @@ function LoadRecordingButton() {
     <>
       <span
         className="icon-btn"
-        title="Load recording (.wvrec)"
+        title="Load recording (.mcap / .wvrec)"
         onClick={() => inputRef.current?.click()}
       >
         <Icon name="folder" size={16} />
@@ -260,7 +261,7 @@ function LoadRecordingButton() {
       <input
         ref={inputRef}
         type="file"
-        accept=".wvrec"
+        accept=".mcap,.wvrec"
         style={{ display: 'none' }}
         onChange={onPick}
       />
@@ -284,16 +285,16 @@ function RecordButton() {
   const [stats, setStats] = useState(recorder.stats());
 
   const finalize = useCallback(() => {
-    const blob = recorder.stop();
     setActive(false);
-    if (blob) {
+    void recorder.stop().then((blob) => {
+      if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `webviz-${new Date().toISOString().replace(/[:.]/g, '-')}.wvrec`;
+      a.download = `webviz-${new Date().toISOString().replace(/[:.]/g, '-')}.mcap`;
       a.click();
       URL.revokeObjectURL(url);
-    }
+    });
   }, []);
 
   useEffect(() => {

@@ -165,7 +165,7 @@ Open the app, it auto-connects to `ws://localhost:7777`.
   in the Properties panel.
 - **Other tabs**: Image (camera grid), Plot (live time-series), Map (2D top-down), and
   Log (event stream) — add any from the `＋` menu. Split the workspace into panes, save
-  named layouts, and record a session to `.wvrec` (then load it back for playback).
+  named layouts, and record a session to **MCAP** (`.mcap` — openable in Foxglove Studio or any MCAP tool; then load it back for playback).
 - **Load your own URDF**: in the 3D tab's RobotModel properties, click *Load URDF…*
   and choose **Load URDF folder…** to pick the folder containing your `.urdf` + meshes.
   It validates (joints found, meshes loaded/failed). An articulated robot stays hidden

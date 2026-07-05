@@ -1,35 +1,40 @@
 /**
  * Session recorder (§16.1). Taps the *raw* WS frames as they arrive (before
- * decode), so a recording is byte-for-byte faithful — including binary
- * `wv/PointCloud` / `wv/Image` frames that JSON can't hold — and playback
- * (`core/player.ts`) can re-feed the exact bytes.
+ * decode) — a cheap push per frame, no parsing on the hot path — and
+ * serializes them into an **MCAP** file (https://mcap.dev) at `stop()`.
  *
- * Container format (`.wvrec`):
- *   magic    4 bytes  "WVR2"  (legacy "WVR1" had no catalogue)
- *   uint32   catalogueLen  (little-endian; WVR2 only)
- *   bytes    catalogue     UTF-8 JSON `ChannelInfo[]` snapshot at record start
- *   then per record:
- *     float64  t     little-endian, seconds since recording start
- *     uint8    type  0 = text frame, 1 = binary frame
- *     uint32   len   payload byte length, little-endian
- *     bytes    payload (UTF-8 for text)
+ * MCAP mapping (one pass over the raw records at stop time):
+ *   - one MCAP channel per wv channel; `topic` = wv channel name, original wv
+ *     ids/encoding/latched preserved in channel `metadata` (`wv_*` keys) so
+ *     playback (`core/player.ts`) can rebuild the wire frames and keep the
+ *     replay-as-a-source trick.
+ *   - JSON channels: message data = the serialized `data` payload only,
+ *     messageEncoding `json` — so recordings open meaningfully in Foxglove
+ *     Studio / `mcap cat --json`.
+ *   - binary channels (`wv/PointCloud`, `wv/Image`, …): message data = the
+ *     payload after the 20-byte wv header, messageEncoding `wv`.
+ *   - `logTime` = capture wall-clock (drives replay pacing, preserving arrival
+ *     spacing); `publishTime` = the frame's source timestamp (rebuilt into the
+ *     replayed frames; ns quantization ≈100 ns — far below wire f64 precision).
+ *   - control frames aren't stored, but mid-recording `advertise`/`server_info`
+ *     are folded into the channel catalogue while serializing.
  *
- * The catalogue exists because data frames carry only a numeric `channel_id`;
- * the `server_info` / `advertise` messages that name a channel arrive at connect
- * (before recording starts), so without this snapshot a mid-session recording
- * could not be replayed under meaningful channel names/schemas.
+ * The catalogue snapshot at `start()` exists because data frames carry only a
+ * numeric `channel_id`; the `server_info`/`advertise` that *name* a channel
+ * arrive at connect, before recording starts.
+ *
+ * The player still reads the legacy `.wvrec` container (`WVR1`/`WVR2`).
  */
 
-import type { ChannelInfo } from '@webviz/protocol';
+import { McapWriter, TempBuffer } from '@mcap/core';
+import { decodeBinaryFrame, type ChannelInfo } from '@webviz/protocol';
 
-interface Record {
+interface RawRecord {
   t: number; // performance.now() at capture
   type: 0 | 1; // 0 = text frame, 1 = binary frame
-  /** UTF-8 bytes (text) or the raw binary frame — the exact bytes serialized. */
+  /** UTF-8 bytes (text) or the raw binary frame — the exact bytes captured. */
   payload: Uint8Array<ArrayBuffer>;
 }
-
-const MAGIC = new Uint8Array([0x57, 0x56, 0x52, 0x32]); // "WVR2"
 
 // Recordings are held entirely in memory (and the player keeps binary copies),
 // so cap them to bound memory and the cost of a backward seek during playback,
@@ -39,10 +44,16 @@ const MAGIC = new Uint8Array([0x57, 0x56, 0x52, 0x32]); // "WVR2"
 const DEFAULT_CAP_BYTES = 256 * 1024 * 1024;
 const MAX_FRAMES = 200_000;
 
+/** Seconds (f64) → nanoseconds (bigint ≥ 0) for MCAP timestamps. */
+function secToNs(sec: number): bigint {
+  return sec > 0 ? BigInt(Math.round(sec * 1e9)) : 0n;
+}
+
 class Recorder {
   private active = false;
-  private records: Record[] = [];
-  private startMs = 0;
+  private records: RawRecord[] = [];
+  private startMs = 0; // performance.now() at start (relative spacing)
+  private startEpochMs = 0; // Date.now() at start (absolute logTime base)
   private bytes = 0;
   private catalogue: ChannelInfo[] = [];
   private limitReached = false;
@@ -74,20 +85,20 @@ class Recorder {
     this.limitReached = false;
     this.catalogue = channels.map((c) => ({ ...c }));
     this.startMs = performance.now();
+    this.startEpochMs = Date.now();
     this.active = true;
   }
 
-  /** Stop and return the recording as a Blob (null if not recording). */
-  stop(): Blob | null {
+  /** Stop and return the recording as an MCAP Blob (null if not recording). */
+  async stop(): Promise<Blob | null> {
     if (!this.active) return null;
     this.active = false;
     return this.serialize();
   }
 
   /** Called for every raw frame; a cheap no-op when not recording or capped.
-   * Text frames are encoded to UTF-8 once here — the exact bytes `serialize`
-   * writes — so the size cap tracks the real `.wvrec` size rather than UTF-16
-   * code-unit counts. */
+   * Text frames are encoded to UTF-8 once here so the size cap tracks real
+   * bytes rather than UTF-16 code-unit counts; all parsing waits for stop(). */
   capture(raw: string | ArrayBuffer): void {
     if (!this.active || this.limitReached) return;
     const type: 0 | 1 = typeof raw === 'string' ? 0 : 1;
@@ -108,21 +119,122 @@ class Recorder {
     };
   }
 
-  private serialize(): Blob {
-    const cat = this.enc.encode(JSON.stringify(this.catalogue));
-    const catHead = new ArrayBuffer(4);
-    new DataView(catHead).setUint32(0, cat.byteLength, true);
+  private async serialize(): Promise<Blob> {
+    const buffer = new TempBuffer();
+    const writer = new McapWriter({ writable: buffer });
+    await writer.start({ profile: '', library: 'webviz' });
 
-    const parts: BlobPart[] = [MAGIC, catHead, cat];
+    const dec = new TextDecoder();
+    // wv global id → ChannelInfo. Seeded from the start() snapshot; grows as
+    // mid-recording advertise/server_info frames are encountered in order.
+    const catalogue = new Map<number, ChannelInfo>();
+    for (const c of this.catalogue) catalogue.set(c.id, c);
+
+    const schemaIds = new Map<string, number>(); // "<schema>|<binary>" → mcap schema id
+    const channelIds = new Map<number, number>(); // wv global id → mcap channel id
+    const sequences = new Map<number, number>(); // mcap channel id → next sequence
+
+    const getChannelId = async (wvId: number, binary: boolean): Promise<number> => {
+      let id = channelIds.get(wvId);
+      if (id !== undefined) return id;
+      // Frames for a channel we never saw named still get recorded (rather
+      // than silently dropped) under a synthesized identity.
+      const info: ChannelInfo = catalogue.get(wvId) ?? {
+        id: wvId,
+        name: `channel_${wvId}`,
+        schema: 'wv/Custom',
+        encoding: binary ? 'binary' : 'json',
+      };
+      const schemaKey = `${info.schema}|${binary}`;
+      let schemaId = schemaIds.get(schemaKey);
+      if (schemaId === undefined) {
+        schemaId = await writer.registerSchema({
+          name: String(info.schema),
+          // No schema text to embed; 'jsonschema' (empty) still lets Foxglove
+          // render JSON channels generically.
+          encoding: binary ? '' : 'jsonschema',
+          data: new Uint8Array(0),
+        });
+        schemaIds.set(schemaKey, schemaId);
+      }
+      const metadata = new Map<string, string>([
+        ['wv_channel_id', String(info.id)],
+        ['wv_encoding', String(info.encoding)],
+      ]);
+      if (info.source_id) metadata.set('wv_source_id', info.source_id);
+      if (info.latched) metadata.set('wv_latched', 'true');
+      id = await writer.registerChannel({
+        topic: info.name,
+        messageEncoding: binary ? 'wv' : 'json',
+        schemaId,
+        metadata,
+      });
+      channelIds.set(wvId, id);
+      return id;
+    };
+
+    const addMessage = async (
+      wvId: number,
+      binary: boolean,
+      relMs: number,
+      sourceT: number,
+      data: Uint8Array,
+    ) => {
+      const channelId = await getChannelId(wvId, binary);
+      const sequence = sequences.get(channelId) ?? 0;
+      sequences.set(channelId, sequence + 1);
+      await writer.addMessage({
+        channelId,
+        sequence,
+        logTime: secToNs((this.startEpochMs + relMs) / 1000),
+        publishTime: secToNs(sourceT),
+        data,
+      });
+    };
+
     for (const r of this.records) {
-      const head = new ArrayBuffer(13);
-      const dv = new DataView(head);
-      dv.setFloat64(0, (r.t - this.startMs) / 1000, true);
-      dv.setUint8(8, r.type);
-      dv.setUint32(9, r.payload.byteLength, true);
-      parts.push(head, r.payload);
+      const relMs = r.t - this.startMs;
+      if (r.type === 1) {
+        let frame;
+        try {
+          frame = decodeBinaryFrame(r.payload);
+        } catch {
+          continue;
+        }
+        await addMessage(frame.channelId, true, relMs, frame.timestamp, frame.payload);
+        continue;
+      }
+      let msg: {
+        op?: string;
+        channel_id?: number;
+        timestamp?: number;
+        data?: unknown;
+        channel?: ChannelInfo;
+        channels?: ChannelInfo[];
+      };
+      try {
+        msg = JSON.parse(dec.decode(r.payload));
+      } catch {
+        continue;
+      }
+      if (msg.op === 'message' && typeof msg.channel_id === 'number') {
+        await addMessage(
+          msg.channel_id,
+          false,
+          relMs,
+          msg.timestamp ?? 0,
+          this.enc.encode(JSON.stringify(msg.data ?? null)),
+        );
+      } else if (msg.op === 'advertise' && msg.channel) {
+        catalogue.set(msg.channel.id, msg.channel);
+      } else if (msg.op === 'server_info' && Array.isArray(msg.channels)) {
+        for (const c of msg.channels) catalogue.set(c.id, c);
+      }
+      // other control ops (unadvertise, …) carry no replayable data
     }
-    return new Blob(parts, { type: 'application/octet-stream' });
+
+    await writer.end();
+    return new Blob([buffer.get() as BlobPart], { type: 'application/octet-stream' });
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * Playback transport bar (§16.1). Renders only when a `.wvrec` is loaded; drives
+ * Playback transport bar (§16.1). Renders only when a recording is loaded; drives
  * the `player` singleton. Play/pause, a draggable scrubber, time readout, speed,
  * and a close button that unloads (removing the `replay/*` channels).
  */
