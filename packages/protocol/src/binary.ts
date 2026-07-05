@@ -14,7 +14,7 @@
  *   20+    payload (schema-specific)
  */
 
-import { ImageEncoding } from './schemas.js';
+import { ImageEncoding, type Pose } from './schemas.js';
 
 export const BINARY_OP = 0x01;
 export const HEADER_SIZE = 20;
@@ -190,6 +190,88 @@ export function encodePointCloudPayload(pc: PointCloudPayload): Uint8Array {
   // Raw float bytes (little-endian on LE hosts; Python packs '<f' to match).
   out.set(new Uint8Array(pc.data.buffer, pc.data.byteOffset, pc.data.byteLength), off);
   return out;
+}
+
+// --- wv/OccupancyGrid binary payload ---
+// The JSON form carries cells as base64 (~33 % overhead + a decode pass on the
+// largest recurring message); the binary form ships them raw. Layout mirrors
+// wv/Image: a length-prefixed frame_id leads, then fixed metadata, then cells.
+//   uint32   frame_id length (N)
+//   utf8     frame_id (N bytes)
+//   float64  resolution (m/cell)
+//   uint32   width
+//   uint32   height
+//   float64 ×3  origin position (x, y, z)
+//   float64 ×4  origin orientation (x, y, z, w)
+//   uint8   × width*height  cells (0=free … 100=occupied, 255=unknown)
+
+export interface OccupancyGridPayload {
+  frame_id: string;
+  resolution: number;
+  width: number;
+  height: number;
+  origin: Pose;
+  /** width*height cells, row-major: 0=free … 100=occupied, 255=unknown. */
+  data: Uint8Array;
+}
+
+export function encodeOccupancyGridPayload(grid: OccupancyGridPayload): Uint8Array {
+  const frameIdBytes = textEncoder.encode(grid.frame_id);
+  const n = frameIdBytes.byteLength;
+  const total = 4 + n + 8 + 4 + 4 + 8 * 7 + grid.data.byteLength;
+  const out = new Uint8Array(total);
+  const view = new DataView(out.buffer);
+  let off = 0;
+  view.setUint32(off, n, LE);
+  off += 4;
+  out.set(frameIdBytes, off);
+  off += n;
+  view.setFloat64(off, grid.resolution, LE);
+  off += 8;
+  view.setUint32(off, grid.width, LE);
+  off += 4;
+  view.setUint32(off, grid.height, LE);
+  off += 4;
+  for (const v of grid.origin.position) {
+    view.setFloat64(off, v, LE);
+    off += 8;
+  }
+  for (const v of grid.origin.orientation) {
+    view.setFloat64(off, v, LE);
+    off += 8;
+  }
+  out.set(grid.data, off);
+  return out;
+}
+
+export function decodeOccupancyGridPayload(payload: Uint8Array): OccupancyGridPayload {
+  const view = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  );
+  let off = 0;
+  const n = view.getUint32(off, LE);
+  off += 4;
+  const frame_id = textDecoder.decode(payload.subarray(off, off + n));
+  off += n;
+  const resolution = view.getFloat64(off, LE);
+  off += 8;
+  const width = view.getUint32(off, LE);
+  off += 4;
+  const height = view.getUint32(off, LE);
+  off += 4;
+  const f64 = () => {
+    const v = view.getFloat64(off, LE);
+    off += 8;
+    return v;
+  };
+  const origin: Pose = {
+    position: [f64(), f64(), f64()],
+    orientation: [f64(), f64(), f64(), f64()],
+  };
+  const data = payload.subarray(off, off + width * height);
+  return { frame_id, resolution, width, height, origin, data };
 }
 
 export function decodePointCloudPayload(payload: Uint8Array): PointCloudPayload {

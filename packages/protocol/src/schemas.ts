@@ -128,7 +128,8 @@ export interface LaserScan {
   intensities?: number[];
 }
 
-/** `wv/OccupancyGrid`. */
+/** `wv/OccupancyGrid` — JSON form. Grids may also arrive on a binary channel
+ * (raw cells, no base64 — see `encodeOccupancyGridPayload` in binary.ts). */
 export interface OccupancyGrid {
   frame_id: string;
   resolution: number;

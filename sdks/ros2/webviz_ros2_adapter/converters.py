@@ -144,13 +144,18 @@ def laserscan_to_wv(msg: Any) -> dict[str, Any]:
     }
 
 
-def occupancygrid_to_wv(msg: Any) -> dict[str, Any]:
-    """nav_msgs/OccupancyGrid → wv/OccupancyGrid.
+def _grid_cells(msg: Any) -> bytes:
+    """ROS cells are int8: -1 unknown, 0..100 occupancy. wv wants uint8 with 255
+    for unknown (0=free, 100=occupied), so remap -1 → 255 and clamp the rest."""
+    return bytes(255 if v < 0 else min(v, 100) for v in msg.data)
 
-    ROS cells are int8: -1 unknown, 0..100 occupancy. wv wants uint8 with 255 for
-    unknown (0=free, 100=occupied), so remap -1 → 255 and clamp the rest.
+
+def occupancygrid_to_wv(msg: Any) -> dict[str, Any]:
+    """nav_msgs/OccupancyGrid → wv/OccupancyGrid JSON form (cells as base64).
+
+    Kept as the reference for JSON producers; the adapter itself bridges grids
+    with `occupancygrid_to_payload` (binary — no base64 overhead).
     """
-    cells = bytes(255 if v < 0 else min(v, 100) for v in msg.data)
     info = msg.info
     return {
         "frame_id": msg.header.frame_id,
@@ -158,8 +163,31 @@ def occupancygrid_to_wv(msg: Any) -> dict[str, Any]:
         "width": info.width,
         "height": info.height,
         "origin": _pose(info.origin),
-        "data": base64.b64encode(cells).decode("ascii"),
+        "data": base64.b64encode(_grid_cells(msg)).decode("ascii"),
     }
+
+
+def occupancygrid_to_payload(msg: Any) -> bytes:
+    """nav_msgs/OccupancyGrid → wv/OccupancyGrid *binary* payload.
+
+    Mirrors `encodeOccupancyGridPayload` in protocol/src/binary.ts:
+    length-prefixed frame_id, f64 resolution, u32 width/height, f64×7 origin
+    pose (xyz + quaternion xyzw), then raw uint8 cells.
+    """
+    info = msg.info
+    o = info.origin
+    fid = msg.header.frame_id.encode("utf-8")
+    return (
+        struct.pack("<I", len(fid))
+        + fid
+        + struct.pack("<dII", info.resolution, info.width, info.height)
+        + struct.pack(
+            "<7d",
+            o.position.x, o.position.y, o.position.z,
+            o.orientation.x, o.orientation.y, o.orientation.z, o.orientation.w,
+        )
+        + _grid_cells(msg)
+    )
 
 
 def path_to_wv(msg: Any) -> dict[str, Any]:

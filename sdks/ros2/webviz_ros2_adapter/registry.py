@@ -41,8 +41,8 @@ REGISTRY: dict[str, TypeEntry] = {
         "sensor_msgs.msg", "LaserScan", "wv/LaserScan", "json", C.laserscan_to_wv
     ),
     "nav_msgs/msg/OccupancyGrid": TypeEntry(
-        "nav_msgs.msg", "OccupancyGrid", "wv/OccupancyGrid", "json",
-        C.occupancygrid_to_wv,
+        "nav_msgs.msg", "OccupancyGrid", "wv/OccupancyGrid", "binary",
+        C.occupancygrid_to_payload,
     ),
     "nav_msgs/msg/Path": TypeEntry(
         "nav_msgs.msg", "Path", "wv/Path", "json", C.path_to_wv

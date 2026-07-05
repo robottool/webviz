@@ -15,7 +15,8 @@ import { useEffect, useReducer, useRef } from 'react';
 import { tfManager } from '../core/TFManager.js';
 import { hubClient } from '../protocol/HubClient.js';
 import type { RoutedMessage } from '../protocol/MessageRouter.js';
-import type { LaserScan, OccupancyGrid, Path } from '@webviz/protocol';
+import type { LaserScan, Path } from '@webviz/protocol';
+import { decodeGridMessage, type DecodedGrid } from '../core/occupancyGrid.js';
 import { useConnectionStore } from '../store/connection.store.js';
 import { useTabStore } from '../store/tabs.store.js';
 
@@ -54,18 +55,10 @@ function frameAffine(frameId: string): Affine | null {
   return { tx: rp.position.x, ty: rp.position.y, yaw: yawFromQuat(rp.quaternion) };
 }
 
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 /** Build an offscreen image of the occupancy grid (free=light, occupied=dark,
  *  unknown=transparent). Pixel (c, r) holds row-major cell (c, r). */
-function buildGridImage(grid: OccupancyGrid): HTMLCanvasElement {
-  const { width: w, height: h } = grid;
-  const cells = base64ToBytes(grid.data);
+function buildGridImage(grid: DecodedGrid): HTMLCanvasElement {
+  const { width: w, height: h, cells } = grid;
   const img = new ImageData(w, h);
   const px = img.data;
   for (let i = 0; i < w * h; i++) {
@@ -106,7 +99,7 @@ export function MapTab({ tabId }: Props) {
   };
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gridRef = useRef<{ grid: OccupancyGrid; image: HTMLCanvasElement } | null>(null);
+  const gridRef = useRef<{ grid: DecodedGrid; image: HTMLCanvasElement } | null>(null);
   const pathRef = useRef<Path | null>(null);
   const scanRef = useRef<LaserScan | null>(null);
   const view = useRef({ pxPerM: 30, panX: 0, panY: 0 });
@@ -126,9 +119,8 @@ export function MapTab({ tabId }: Props) {
     }
     needsFit.current = true;
     const unsub = hubClient.subscribe(mapChannel, (m: RoutedMessage) => {
-      if (m.binary) return;
-      const grid = m.data as OccupancyGrid;
-      gridRef.current = { grid, image: buildGridImage(grid) };
+      const grid = decodeGridMessage(m); // JSON-base64 or binary payload
+      if (grid) gridRef.current = { grid, image: buildGridImage(grid) };
     });
     return () => unsub();
   }, [mapChannel]);
@@ -319,7 +311,7 @@ function ensure(list: string[], value: string): string[] {
 
 function drawMap(
   canvas: HTMLCanvasElement | null,
-  gridEntry: { grid: OccupancyGrid; image: HTMLCanvasElement } | null,
+  gridEntry: { grid: DecodedGrid; image: HTMLCanvasElement } | null,
   path: Path | null,
   scan: LaserScan | null,
   viewRef: React.MutableRefObject<{ pxPerM: number; panX: number; panY: number }>,

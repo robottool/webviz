@@ -1,14 +1,15 @@
 /**
- * OccupancyGrid display plugin (§10). Decodes a `wv/OccupancyGrid` (base64 uint8,
- * 0=free … 100=occupied, 255=unknown) into a `DataTexture` on a `PlaneGeometry`
- * sized `width·height · resolution`. Cell (0,0) sits at the grid `origin`, which
- * is itself anchored to `frame_id` via the shared TF tree.
+ * OccupancyGrid display plugin (§10). Decodes a `wv/OccupancyGrid` (JSON
+ * base64 or binary payload — `core/occupancyGrid.ts` handles both; cells are
+ * uint8, 0=free … 100=occupied, 255=unknown) into a `DataTexture` on a
+ * `PlaneGeometry` sized `width·height · resolution`. Cell (0,0) sits at the
+ * grid `origin`, which is itself anchored to `frame_id` via the shared TF tree.
  *
  * Object nesting: root(frame pose) ▸ originNode(grid origin pose) ▸ plane.
  */
 
 import * as THREE from 'three';
-import type { OccupancyGrid } from '@webviz/protocol';
+import { decodeGridMessage, type DecodedGrid } from '../core/occupancyGrid.js';
 import type { DisplayPlugin, PluginContext, PluginFactory, PropSchema } from '../core/plugin.js';
 
 interface Settings {
@@ -71,15 +72,14 @@ export class OccupancyGridPlugin implements DisplayPlugin {
     const name = this.settings.channel;
     if (!name) return;
     this.unsub = this.ctx.hub.subscribe(name, (m) => {
-      if (m.binary) return;
-      this.update(m.data as OccupancyGrid);
+      const grid = decodeGridMessage(m);
+      if (grid) this.update(grid);
     });
   }
 
-  private update(grid: OccupancyGrid): void {
+  private update(grid: DecodedGrid): void {
     this.frameId = grid.frame_id;
-    const { width: w, height: h, resolution: res } = grid;
-    const cells = base64ToBytes(grid.data);
+    const { width: w, height: h, resolution: res, cells } = grid;
 
     // free → white, occupied → black, unknown (255) → transparent.
     const rgba = new Uint8Array(w * h * 4);
@@ -165,14 +165,6 @@ export class OccupancyGridPlugin implements DisplayPlugin {
     this.material.dispose();
     this.texture?.dispose();
   }
-}
-
-/** Decode standard base64 to bytes (browser `atob`; also present in Node ≥16). */
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
 }
 
 export const occupancyGridFactory: PluginFactory = (id, initial) =>
