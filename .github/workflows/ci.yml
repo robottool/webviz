@@ -21,7 +21,7 @@ jobs:
 
       # No `version:` here — pnpm/action-setup@v4 reads it from the
       # `packageManager` field in package.json (same note as pages.yml).
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v5
         with:
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       # Importing the demos pulls in webviz.client, which needs websockets.

@@ -33,7 +33,7 @@ jobs:
       # No `version:` here — pnpm/action-setup@v4 reads it from the
       # `packageManager` field in package.json (pnpm@9.x). Specifying it in both
       # places errors with "Multiple versions of pnpm specified".
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v5
         with:
@@ -50,7 +50,7 @@ jobs:
           WEBVIZ_BASE: /${{ github.event.repository.name }}/
         run: pnpm --filter @webviz/app build
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: packages/app/dist
 
@@ -62,4 +62,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
