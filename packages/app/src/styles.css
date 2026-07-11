@@ -179,6 +179,47 @@
   --c-log: #fbbf24;
 }
 
+/* Theme: studio bright — the light twin of `studio`. A clean white
+   product-render / cyclorama look: near-white chrome + a bright viewport backdrop
+   the ShadowMaterial catches soft contact shadows on. Same --viewport-shadows
+   flag, so SceneManager runs the identical shadow + PBR rig; only the palette
+   differs. Being a light theme, it flips --accent-ink → white and --surface-hi →
+   a dark overlay (like `industry`). Color backgrounds aren't tone-mapped by
+   three, so the light --viewport-bg reads truly bright under ACES. */
+[data-theme='studio-light'] {
+  --bg: #d5d8dd; /* frame / inset wells */
+  --bg-2: #e4e7ea; /* panels, bars */
+  --bg-3: #f4f6f8; /* raised: inputs, buttons, cards */
+  --border: #bcc3cc;
+  --text: #232b34;
+  --text-dim: #5b6573;
+  --accent: #c97a1c; /* warm "studio light" amber, deepened for light-bg contrast */
+  --accent-2: #e0912e;
+  --accent-ink: #ffffff; /* white text on the amber accent */
+  --green: #1f8f63;
+  --red: #c34a40;
+  --yellow: #b07a16;
+  --app-bg: linear-gradient(180deg, #e6e9ec 0%, #d2d6db 100%);
+  --surface-hi: rgba(0, 0, 0, 0.05); /* hover darkens on light */
+  --glow-accent: none;
+  --glow-live: none;
+  --accent-fill: var(--accent);
+  --scroll-thumb: #b6bdc7;
+  --scroll-thumb-hover: #9fa8b4;
+  /* Bright near-white studio backdrop + faint floor grid. */
+  --viewport-bg: #eef0f2;
+  --grid-major: #d0d5da;
+  --grid-minor: #e1e4e8;
+  /* Same flag as `studio`: turns on the shadow + PBR rig in SceneManager. */
+  --viewport-shadows: 1;
+  --c-3d: #c97a1c;
+  --c-image: #6f55c2;
+  --c-plot: #1f8f63;
+  --c-map: #0e8c97;
+  --c-inspector: #5b6573;
+  --c-log: #b07a16;
+}
+
 * {
   box-sizing: border-box;
 }

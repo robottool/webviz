@@ -135,6 +135,7 @@ function SettingsMenu() {
                   <option value="vibrant">Vibrant</option>
                   <option value="industry">Industry (light)</option>
                   <option value="studio">Studio (shadows)</option>
+                  <option value="studio-light">Studio bright (shadows)</option>
                 </select>
               </label>
               <label className="settings-row">
